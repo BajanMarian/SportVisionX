@@ -1,0 +1,10 @@
+spain/acb
+italy/lega-a
+france/lnb
+turkey/super-lig
+finland/korisliiga
+poland/basket-liga
+croatia/premijer-liga
+germany/bbl
+romania/divizia-a
+bulgaria/nbl
