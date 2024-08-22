@@ -6,6 +6,7 @@ from datetime import datetime
 from selenium.common import NoSuchElementException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.webdriver import WebDriver
+from selenium.webdriver.remote.webelement import WebElement
 
 from models.match import Sport, Match
 
@@ -127,11 +128,14 @@ class FlashScoreCrawler:
 
     def crawl_matches_v3(self, url: str, sport: Sport) -> List[Match]:
         self._load_the_entire_webpage(url)
+        table: WebElement
+        try:
+            table = self.driver.find_element(By.ID, FlashScoreCrawler.TABLE_ID)
+        except NoSuchElementException:
+            print(f'Error: Cannot identify matches table (web_element_id={FlashScoreCrawler.TABLE_ID}) using {url}.')
+            return []
 
         all_matches = []
-
-        table = self.driver.find_element(By.ID, FlashScoreCrawler.TABLE_ID)
-
         match_date = competition_stage = ""
 
         i = 0
