@@ -141,7 +141,7 @@ class Championship:
             stabilization_round: int,
             last_round_of_interest: int,
     ) -> Dict[str, int]:
-        best_teams_stats = {"wins": 0, "defeats": 0, "draw": 0}
+        best_teams_stats = {"wins": 0, "defeats": 0, "draws": 0}
 
         current_round = stabilization_round + 1
         while current_round <= last_round_of_interest:
@@ -159,14 +159,14 @@ class Championship:
                     elif match.home_total_score < match.away_total_score:
                         best_teams_stats["defeats"] += 1
                     else:
-                        best_teams_stats["draw"] += 1
+                        best_teams_stats["draws"] += 1
                 elif match.home_team in worst_teams_group and match.away_team in best_teams_group:
                     if match.home_total_score > match.away_total_score:
                         best_teams_stats["defeats"] += 1
                     elif match.home_total_score < match.away_total_score:
                         best_teams_stats["wins"] += 1
                     else:
-                        best_teams_stats["draw"] += 1
+                        best_teams_stats["draws"] += 1
             current_round += 1
 
         return best_teams_stats
