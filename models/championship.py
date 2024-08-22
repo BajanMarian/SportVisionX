@@ -100,7 +100,7 @@ class Championship:
                     "games": 0
                 }
 
-            if match.date < limit_date:
+            if match.date <= limit_date:
                 points = match.compute_points()
                 standings[match.home_team]["points"] += points[0]
                 standings[match.away_team]["points"] += points[1]
@@ -148,7 +148,7 @@ class Championship:
             round_matches = self.get_matches_from_round(current_round)
 
             # compute standings and extract the first and last teams
-            standings = self.compute_standings_before_round(current_round - 1)
+            standings = self.compute_standings_before_round(current_round)
             best_teams_group = Championship.extract_first_k_teams(standings, best_teams_number)
             worst_teams_group = Championship.extract_last_k_teams(standings, worst_teams_number)
 
