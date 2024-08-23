@@ -1,5 +1,7 @@
 import os
 from datetime import datetime
+from pathlib import Path
+from collections import defaultdict
 
 import pandas as pd
 
@@ -40,6 +42,53 @@ class Championship:
                     m.add_period_scores(home_score_by_period[i], away_score_by_period[i])
 
             self.matches.append(m)
+
+    def validate(self) -> str:
+
+        if len(self.matches) == 0:
+            return (f'{self.championship_data_file}: '
+                    f'No match found. Please consider loading the matches before validating the championship.')
+
+        all_teams = set()
+        games_per_round = defaultdict(int)
+
+        for match in self.matches:
+            if "ROUND " in match.round:
+                all_teams.add(match.home_team)
+                all_teams.add(match.away_team)
+                games_per_round[int(match.round.split(' ')[1])] += 1
+
+        # Ensure that the data is correctly structured and organized by rounds
+        if len(games_per_round.keys()) == 0:
+            return f'{self.championship_data_file} does not have data structured and organized by rounds.'
+
+        # Check for missing rounds
+        max_round = max(games_per_round.keys())
+        missing_rounds = []
+        for match_round in range(1, max_round + 1):
+            if match_round not in games_per_round:
+                missing_rounds.append(match_round)
+
+        if len(missing_rounds) > 0:
+            return f'{self.championship_data_file} has missing round: {missing_rounds}.'
+
+        # if the championship has an even number of teams, we expect 'teams_count/2' matches per round
+        if len(all_teams) % 2 == 0:
+            expected_games_count_per_round = int(len(all_teams) / 2)
+            for round_id, games_played in games_per_round.items():
+
+                if games_played != expected_games_count_per_round:
+                    uncompleted_rds = {k: v for k, v in games_per_round.items() if v != expected_games_count_per_round}
+
+                    max_rounds_count_in_uncompleted_rds = max(uncompleted_rds.values())
+                    min_rounds_count_in_uncompleted_rds = min(uncompleted_rds.values())
+                    # consider a maximum of 2 teams that have retired in the current season
+                    if max_rounds_count_in_uncompleted_rds != min_rounds_count_in_uncompleted_rds \
+                            or max_rounds_count_in_uncompleted_rds != expected_games_count_per_round - 1:
+                        return (f'{self.championship_data_file} has uncompleted rounds: {uncompleted_rds}. '
+                                f'Expected {expected_games_count_per_round} matches per round because the championship '
+                                f'has {len(all_teams)} teams.')
+        return ""
 
     def get_matches_from_round(self, championship_round: str | int) -> List[Match]:
 
