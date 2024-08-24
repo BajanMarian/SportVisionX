@@ -6,7 +6,7 @@ from collections import defaultdict
 import pandas as pd
 
 from models.match import Match, Sport
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 
 class Championship:
@@ -35,7 +35,7 @@ class Championship:
                 competition_round=row['round'],
             )
 
-            if row['home_score_by_period'] is None or row['away_score_by_period'] is None:
+            if type(row['home_score_by_period']) is str and type(row['away_score_by_period']) is str:
                 home_score_by_period = row['home_score_by_period'].split('-')
                 away_score_by_period = row['away_score_by_period'].split('-')
                 for i in range(len(home_score_by_period)):
@@ -70,7 +70,7 @@ class Championship:
                 missing_rounds.append(match_round)
 
         if len(missing_rounds) > 0:
-            return f'{self.championship_data_file} has missing round: {missing_rounds}.'
+            return f'{self.championship_data_file} has missing round(s): {missing_rounds}.'
 
         # if the championship has an even number of teams, we expect 'teams_count/2' matches per round
         if len(all_teams) % 2 == 0:
@@ -85,7 +85,7 @@ class Championship:
                     # consider a maximum of 2 teams that have retired in the current season
                     if max_rounds_count_in_uncompleted_rds != min_rounds_count_in_uncompleted_rds \
                             or max_rounds_count_in_uncompleted_rds != expected_games_count_per_round - 1:
-                        return (f'{self.championship_data_file} has uncompleted rounds: {uncompleted_rds}. '
+                        return (f'{self.championship_data_file} has uncompleted round(s): {uncompleted_rds}. '
                                 f'Expected {expected_games_count_per_round} matches per round because the championship '
                                 f'has {len(all_teams)} teams.')
         return ""
@@ -189,8 +189,10 @@ class Championship:
             worst_teams_number: int,
             stabilization_round: int,
             last_round_of_interest: int,
-    ) -> Dict[str, int]:
-        best_teams_stats = {"wins": 0, "defeats": 0, "draws": 0}
+    ) -> Tuple[Dict[str, int], Dict[str, List[Match]]]:
+
+        best_teams_stats = {'wins': 0, 'defeats': 0, 'draws': 0}
+        best_teams_matches = {'best_teams_victory': [], 'best_teams_defeats': [], 'draws': []}
 
         current_round = stabilization_round + 1
         while current_round <= last_round_of_interest:
@@ -202,20 +204,20 @@ class Championship:
             worst_teams_group = Championship.extract_last_k_teams(standings, worst_teams_number)
 
             for match in round_matches:
-                if match.home_team in best_teams_group and match.away_team in worst_teams_group:
-                    if match.home_total_score > match.away_total_score:
-                        best_teams_stats["wins"] += 1
-                    elif match.home_total_score < match.away_total_score:
-                        best_teams_stats["defeats"] += 1
+                if (match.home_team in best_teams_group and match.away_team in worst_teams_group) or \
+                        (match.home_team in worst_teams_group and match.away_team in best_teams_group):
+
+                    winner = match.get_winner()
+                    if winner in best_teams_group:
+                        best_teams_stats['wins'] += 1
+                        best_teams_matches['best_teams_victory'].append(match)
+                    elif winner in worst_teams_group:
+                        best_teams_stats['defeats'] += 1
+                        best_teams_matches['best_teams_defeats'].append(match)
                     else:
-                        best_teams_stats["draws"] += 1
-                elif match.home_team in worst_teams_group and match.away_team in best_teams_group:
-                    if match.home_total_score > match.away_total_score:
-                        best_teams_stats["defeats"] += 1
-                    elif match.home_total_score < match.away_total_score:
-                        best_teams_stats["wins"] += 1
-                    else:
-                        best_teams_stats["draws"] += 1
+                        best_teams_stats['draws'] += 1
+                        best_teams_matches['draws'].append(match)
+
             current_round += 1
 
-        return best_teams_stats
+        return best_teams_stats, best_teams_matches
