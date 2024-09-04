@@ -2,6 +2,7 @@ import argparse
 import os
 import csv
 import sys
+import concurrent.futures
 from typing import List, Dict, Tuple
 
 from selenium import webdriver
@@ -87,43 +88,53 @@ def select_sport() -> Sport:
     return Sport(selected_sport)
 
 
-def main():
+def process_league(league_info: str, url: str, sport: Sport, out_dir: str) -> None:
+    _, league, season = league_info.split("_")
 
+    league_folder = os.path.join(out_dir, sport.name.lower(), season)
+    os.makedirs(league_folder, exist_ok=True)
+
+    league_outfile = os.path.join(league_folder, f'{league.replace('/', '-')}.csv')
+    if os.path.exists(league_outfile):
+        print(f'File {league_outfile} is on disk. Skipping crawling data ...')
+        return
+
+    # use crawl_matches_v3 method for a fast crawling process
+    crawler = setup_crawler()
+    league_matches = crawler.crawl_matches_v3(url, sport)
+    if len(league_matches) == 0:
+        print(f'Error: Cannot crawl data for "{league_info}" using {url}.')
+        return
+
+    # data was crawled in reverse chronological order.
+    season_start_month = league_matches[-1].date.month
+
+    # crawled data does not contain the year, thus we are going to add it manually
+    season_start_year = int(season.split("-")[0])
+    for match in league_matches:
+        match.enhance_match_date(season_start_year, season_start_month)
+
+    write_league_data(league_outfile, league_matches)
+
+
+def main():
     leagues_path, seasons_path, out_dir = parse_input()
     leagues = read_file_lines(leagues_path)
     seasons = read_file_lines(seasons_path)
     sport: Sport = select_sport()
 
-    crawler = setup_crawler()
     leagues_urls = compute_leagues_urls(sport, leagues, seasons)
 
-    for league_info, url in leagues_urls.items():
-
-        _, league, season = league_info.split("_")
-
-        league_folder = os.path.join(out_dir, sport.name.lower(), season)
-        os.makedirs(league_folder, exist_ok=True)
-
-        league_outfile = os.path.join(league_folder, f'{league.replace('/', '-')}.csv')
-        if os.path.exists(league_outfile):
-            print(f'File {league_outfile} is on disk. Skipping crawling data ...')
-            continue
-
-        # use crawl_matches_v3 method for a fast crawling process
-        league_matches = crawler.crawl_matches_v3(url, sport)
-        if len(league_matches) == 0:
-            print(f'Error: Cannot crawl data for "{league_info}" using {url}.')
-            continue
-
-        # data was crawled in reverse chronological order.
-        season_start_month = league_matches[-1].date.month
-
-        # crawled data does not contain the year, thus we are going to add it manually
-        season_start_year = int(season.split("-")[0])
-        for match in league_matches:
-            match.enhance_match_date(season_start_year, season_start_month)
-
-        write_league_data(league_outfile, league_matches)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=11) as executor:
+        futures = [
+            executor.submit(process_league, league_info, url, sport, out_dir)
+            for league_info, url in leagues_urls.items()
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                future.result()
+            except Exception as exc:
+                print(f'Exception: {exc}')
 
 
 if __name__ == '__main__':
