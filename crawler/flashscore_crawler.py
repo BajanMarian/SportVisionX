@@ -13,6 +13,7 @@ from models.match import Sport, Match
 
 class FlashScoreCrawler:
     HYPERLINK_FOR_MORE_MATCHES = 'Show more matches'
+    HYPERLINK_MATCH_DETAILS_PREFIX = 'https://www.flashscore.com/match'
 
     TABLE_ID = 'live-table'
     MATCH_EVENT_CSS_CLS = "event__match event__match--withRowLink event__match--static event__match--twoLine"
@@ -137,6 +138,13 @@ class FlashScoreCrawler:
 
         all_matches = []
         match_date = competition_stage = ""
+
+        # TODO - see where the following lines are used
+        links = self.driver.find_elements(By.TAG_NAME, 'a')
+        filtered_links = [link.get_attribute('href') for link in links if
+                          link.get_attribute('href') and
+                          link.get_attribute('href').startswith(self.HYPERLINK_MATCH_DETAILS_PREFIX)]
+        crawled_match_number = 0
 
         i = 0
         tokens = table.text.split("\n")

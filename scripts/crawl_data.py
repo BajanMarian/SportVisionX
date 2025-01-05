@@ -7,6 +7,7 @@ from typing import List, Dict, Tuple
 
 from selenium import webdriver
 from selenium.webdriver.chrome.webdriver import Options as ChromeOptions
+from chromedriver_py import binary_path
 from InquirerPy import inquirer
 
 from crawler.flashscore_crawler import FlashScoreCrawler
@@ -16,7 +17,8 @@ from models.match import Sport, Match
 def setup_crawler() -> FlashScoreCrawler:
     chrome_options = ChromeOptions()
     chrome_options.add_argument('--headless')
-    driver = webdriver.Chrome(options=chrome_options)
+    chrome_service = webdriver.ChromeService(executable_path=binary_path)
+    driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
     return FlashScoreCrawler(driver)
 
 
@@ -121,11 +123,11 @@ def main():
     leagues_path, seasons_path, out_dir = parse_input()
     leagues = read_file_lines(leagues_path)
     seasons = read_file_lines(seasons_path)
-    sport: Sport = select_sport()
-
+    # sport: Sport = select_sport()
+    sport = Sport.BASKETBALL
     leagues_urls = compute_leagues_urls(sport, leagues, seasons)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=11) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         futures = [
             executor.submit(process_league, league_info, url, sport, out_dir)
             for league_info, url in leagues_urls.items()
@@ -135,7 +137,6 @@ def main():
                 future.result()
             except Exception as exc:
                 print(f'Exception: {exc}')
-
 
 if __name__ == '__main__':
     main()
