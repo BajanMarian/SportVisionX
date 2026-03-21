@@ -1,6 +1,0 @@
-selenium==4.23.1
-pandas==2.2.2
-InquirerPy==0.3.4
-chromedriver-py==130.0.6723.44b0
-sqlalchemy==2.0.36
-psycopg2==2.9.10

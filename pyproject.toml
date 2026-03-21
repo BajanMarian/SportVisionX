@@ -1,0 +1,12 @@
+[project]
+name = "sportvisionx"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "chromedriver-py==145.0.7632.117",
+    "inquirerpy==0.3.4",
+    "pandas==2.2.2",
+    "psycopg2==2.9.10",
+    "selenium==4.23.1",
+    "sqlalchemy==2.0.36",
+]
