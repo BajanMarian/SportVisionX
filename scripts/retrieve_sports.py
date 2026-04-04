@@ -1,18 +1,24 @@
-import csv
 import logging
+import os
+import time
 from pathlib import Path
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+import requests
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from db.sports import Sport
 
 BASE_URL = "https://www.flashscore.com/"
 REQUEST_TIMEOUT_SECONDS = 30
 USER_AGENT = "Mozilla/5.0"
+LINK_VALIDATION_RETRIES = 3
 
 HTML_INPUT_PATH = Path("htmls") / "sports.html"
-
-CSV_OUTPUT_PATH = Path("sports.csv")
-CSV_HEADERS = ("sport_name", "flashscore_link")
+ENV_PATH = Path(".env.production")
 
 logger = logging.getLogger(__name__)
 
@@ -71,22 +77,75 @@ def extract_sports_from_saved_html(html_file_path: Path | str) -> list[dict[str,
     return sorted(sports, key=lambda item: item["sport_name"])
 
 
-def write_sports_csv(sports: list[dict[str, str]], csv_file_path: Path | str) -> Path:
-    csv_path = Path(csv_file_path)
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
+def load_database_url() -> str:
+    load_dotenv(Path.cwd() / ENV_PATH)
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not set in .env.production")
+    return database_url
 
-    with csv_path.open("w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=list(CSV_HEADERS))
-        writer.writeheader()
-        for sport in sports:
-            writer.writerow(
-                {
-                    "sport_name": sport["sport_name"],
-                    "flashscore_link": sport["flashscore_link"],
-                }
+
+def validate_flashscore_link(session: requests.Session, url: str) -> bool:
+    for attempt in range(1, LINK_VALIDATION_RETRIES + 1):
+        try:
+            response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+            if response.status_code == 200:
+                return True
+            logger.warning(
+                "Link validation failed for %s with status %s on attempt %d/%d",
+                url,
+                response.status_code,
+                attempt,
+                LINK_VALIDATION_RETRIES,
+            )
+        except requests.RequestException as exc:
+            logger.warning(
+                "Link validation raised for %s on attempt %d/%d: %s",
+                url,
+                attempt,
+                LINK_VALIDATION_RETRIES,
+                exc,
             )
 
-    return csv_path
+        if attempt < LINK_VALIDATION_RETRIES:
+            time.sleep(1)
+
+    return False
+
+
+def upsert_sports(session: Session, sports: list[dict[str, str]]) -> int:
+    http_session = requests.Session()
+    http_session.headers.update({"User-Agent": USER_AGENT})
+    inserted_or_updated = 0
+
+    try:
+        for sport_data in sports:
+            sport_name = sport_data["sport_name"]
+            flashscore_link = sport_data["flashscore_link"]
+
+            validated_link = (
+                flashscore_link
+                if validate_flashscore_link(http_session, flashscore_link)
+                else None
+            )
+
+            sport = session.get(Sport, sport_name)
+            if sport is None:
+                sport = Sport(name=sport_name, flashscore_link=validated_link)
+                session.add(sport)
+            elif validated_link is not None:
+                sport.flashscore_link = validated_link
+
+            inserted_or_updated += 1
+
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        http_session.close()
+
+    return inserted_or_updated
 
 
 def main() -> int:
@@ -94,13 +153,18 @@ def main() -> int:
 
     try:
         html_file = Path.cwd() / HTML_INPUT_PATH
-        output_csv = Path.cwd() / CSV_OUTPUT_PATH
         sports = extract_sports_from_saved_html(html_file)
-        csv_path = write_sports_csv(sports, output_csv)
-        logger.info("Extracted %d sports to %s", len(sports), csv_path)
+        database_url = load_database_url()
+        engine = create_engine(database_url)
+        session_factory = sessionmaker(bind=engine)
+
+        with session_factory() as db_session:
+            processed_count = upsert_sports(db_session, sports)
+
+        logger.info("Processed %d sports into database", processed_count)
         return 0
     except Exception:
-        logger.exception("Failed to generate sports CSV")
+        logger.exception("Failed to import sports into database")
         return 1
 
 
