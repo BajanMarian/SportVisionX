@@ -7,6 +7,7 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 
 from db.base import Base
+from db.countries import Country
 from db.leagues import League
 from db.sports import Sport
 

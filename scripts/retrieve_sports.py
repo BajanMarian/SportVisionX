@@ -7,7 +7,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import requests
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from db.sports import Sport
@@ -129,7 +129,9 @@ def upsert_sports(session: Session, sports: list[dict[str, str]]) -> int:
                 else None
             )
 
-            sport = session.get(Sport, sport_name)
+            sport = session.scalar(
+                select(Sport).where(Sport.name == sport_name)
+            )
             if sport is None:
                 sport = Sport(name=sport_name, flashscore_link=validated_link)
                 session.add(sport)
