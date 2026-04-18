@@ -62,6 +62,7 @@ function App() {
   const [loadingLeagues, setLoadingLeagues] = useState(false);
   const [loadingSeasons, setLoadingSeasons] = useState(false);
   const [crawlingSeasonById, setCrawlingSeasonById] = useState({});
+  const [crawlWorkers, setCrawlWorkers] = useState(6);
   const [isPending, startTransition] = useTransition();
 
   const deferredSportSearch = useDeferredValue(sportSearch);
@@ -143,10 +144,11 @@ function App() {
       setSeasonSearch("");
       setStatus({ tone: "loading", text: "Loading leagues..." });
       const leaguesPayload = await fetchJson(`/api/sports/${sportId}/leagues`);
+      const leaguesWithSeasons = leaguesPayload.filter((league) => Number(league.season_count || 0) > 0);
       startTransition(() => {
         setSelectedSportId(sportId);
         setSelectedLeagueId(null);
-        setLeagues(leaguesPayload);
+        setLeagues(leaguesWithSeasons);
         setSeasons([]);
       });
       setStatus({ tone: "ready", text: "Pick a league" });
@@ -183,7 +185,8 @@ function App() {
       setError("");
       setStatus({ tone: "loading", text: "Crawling season and saving matches..." });
       setCrawlingSeasonById((prev) => ({ ...prev, [seasonId]: true }));
-      const payload = await fetchJson(`/api/seasons/${seasonId}/crawl-matches`, { method: "POST" });
+      const workers = Math.max(1, Math.min(32, Number(crawlWorkers) || 6));
+      const payload = await fetchJson(`/api/seasons/${seasonId}/crawl-matches?workers=${workers}`, { method: "POST" });
       startTransition(() => {
         setSeasons((prev) =>
           prev.map((season) =>
@@ -447,6 +450,16 @@ function App() {
           </div>
           <div className="card-toolbar">
             <span className="count-pill">${visibleSeasons.length} results</span>
+            <label className="workers-control">
+              Workers
+              <input
+                type="number"
+                min="1"
+                max="32"
+                value=${crawlWorkers}
+                onChange=${(event) => setCrawlWorkers(event.target.value)}
+              />
+            </label>
           </div>
           <input
             className="search-input"
@@ -499,7 +512,8 @@ function App() {
                               <button
                                 type="button"
                                 className="season-download-btn"
-                                onClick=${() => triggerCsvDownload(`/api/leagues/${selectedLeagueId}/matches-detailed.csv?season_id=${season.id}`)}
+                                disabled=${!season.matches_downloaded}
+                                onClick=${() => triggerCsvDownload(`/api/leagues/${selectedLeagueId}/matches-detailed.csv?season_id=${season.id}&source=db`)}
                               >
                                 Download Detailed CSV
                               </button>

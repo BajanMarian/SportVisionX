@@ -3,6 +3,7 @@ import json
 import re
 import sys
 import time
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -36,6 +37,8 @@ ODDS_TARGET_BOOKMAKERS = {
     "superbet": "superbet",
     "unibet": "unibet",
 }
+
+_THREAD_LOCAL = threading.local()
 
 
 @dataclass(slots=True)
@@ -86,13 +89,15 @@ def _parse_feed_records(feed_text: str) -> list[list[tuple[str, str]]]:
 
 def _request_text(url: str, headers: dict[str, str] | None = None) -> str:
     last_error: Exception | None = None
-    merged_headers = {"User-Agent": USER_AGENT}
+    merged_headers = {"User-Agent": USER_AGENT, "Connection": "keep-alive"}
     if headers:
         merged_headers.update(headers)
 
+    session = _get_http_session()
+
     for attempt in range(1, REQUEST_RETRIES + 2):
         try:
-            response = requests.get(url, headers=merged_headers, timeout=REQUEST_TIMEOUT_SECONDS)
+            response = session.get(url, headers=merged_headers, timeout=REQUEST_TIMEOUT_SECONDS)
             response.raise_for_status()
             return response.text
         except requests.RequestException as exc:
@@ -108,6 +113,20 @@ def _request_text(url: str, headers: dict[str, str] | None = None) -> str:
 def _request_json(url: str) -> dict:
     text = _request_text(url)
     return json.loads(text)
+
+
+def _get_http_session() -> requests.Session:
+    session = getattr(_THREAD_LOCAL, "session", None)
+    if session is not None:
+        return session
+
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    session.headers.update({"User-Agent": USER_AGENT, "Connection": "keep-alive"})
+    _THREAD_LOCAL.session = session
+    return session
 
 
 def _fetch_feed(feed_path: str) -> str:
@@ -437,14 +456,17 @@ def _epoch_to_utc(epoch_value: str | None) -> tuple[str, str]:
 
 
 def _build_match_details(summary: MatchSummary) -> dict[str, str]:
-    dc_feed = _fetch_feed(f"dc_1_{summary.event_id}")
-    sui_feed = _fetch_feed(f"df_sui_1_{summary.event_id}")
-    li_feed = _fetch_feed(f"df_li_1_{summary.event_id}")
+    with ThreadPoolExecutor(max_workers=2) as sub_executor:
+        future_odds = sub_executor.submit(_extract_target_1x2_odds, summary.event_id)
+
+        dc_feed = _fetch_feed(f"dc_1_{summary.event_id}")
+        sui_feed = _fetch_feed(f"df_sui_1_{summary.event_id}")
+        li_feed = _fetch_feed(f"df_li_1_{summary.event_id}")
+        odds = future_odds.result()
 
     dc = _parse_dc_feed(dc_feed)
     home_starters, away_starters = _parse_lineups_starters(li_feed)
     sui = _parse_sui_feed(sui_feed, home_starters, away_starters)
-    odds = _extract_target_1x2_odds(summary.event_id)
 
     final_home = _clean_text(dc.get("DE", "")) or summary.home_score
     final_away = _clean_text(dc.get("DF", "")) or summary.away_score

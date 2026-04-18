@@ -319,6 +319,30 @@ a:hover {
 
 .card-toolbar {
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workers-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.workers-control input {
+  width: 68px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 6px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
 }
 
 .count-pill {
@@ -563,6 +587,11 @@ a:hover {
 .season-download-btn:hover {
   border-color: rgba(14, 122, 112, 0.55);
   background: rgba(14, 122, 112, 0.16);
+}
+
+.season-download-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .empty {

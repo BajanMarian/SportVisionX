@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -39,13 +39,13 @@ class Match(Base):
     city: Mapped[str | None] = mapped_column(String(120), nullable=True)
     attendance: Mapped[str | None] = mapped_column(String(50), nullable=True)
     capacity: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    fortuna_1: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    fortuna_x: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    fortuna_2: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    superbet_1: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    superbet_x: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    superbet_2: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    unibet_1: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    unibet_x: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    unibet_2: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    fortuna_1: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fortuna_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fortuna_2: Mapped[float | None] = mapped_column(Float, nullable=True)
+    superbet_1: Mapped[float | None] = mapped_column(Float, nullable=True)
+    superbet_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    superbet_2: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unibet_1: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unibet_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unibet_2: Mapped[float | None] = mapped_column(Float, nullable=True)
     crawl_error: Mapped[str | None] = mapped_column(Text, nullable=True)

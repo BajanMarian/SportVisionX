@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Literal
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -255,7 +255,7 @@ def _build_matches_csv(rows: list[MatchRow]) -> str:
     return "\ufeff" + buffer.getvalue()
 
 
-def _build_detailed_matches_csv(rows: list[dict[str, str]]) -> str:
+def _build_detailed_matches_csv(rows: list[dict[str, object]]) -> str:
     columns = [
         "event_id",
         "match_link",
@@ -295,6 +295,45 @@ def _build_detailed_matches_csv(rows: list[dict[str, str]]) -> str:
     return "\ufeff" + buffer.getvalue()
 
 
+def _match_to_detailed_row(row: Match) -> dict[str, object]:
+    kickoff_datetime_utc = (
+        row.kickoff_datetime_utc.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        if row.kickoff_datetime_utc is not None
+        else ""
+    )
+    return {
+        "event_id": row.event_id or "",
+        "match_link": row.flashscore_link,
+        "match_date": row.match_date or "",
+        "round": row.round_label or "",
+        "kickoff_datetime_utc": kickoff_datetime_utc,
+        "kickoff_hour_utc": row.kickoff_hour_utc or "",
+        "home_team": row.home_team,
+        "away_team": row.away_team,
+        "intermediate_scores": row.intermediate_scores or "",
+        "final_score": row.final_score or "",
+        "goals": row.goals or "",
+        "yellow_cards": row.yellow_cards or "",
+        "red_cards": row.red_cards or "",
+        "referee": row.referee or "",
+        "referee_country_code": row.referee_country_code or "",
+        "stadium": row.stadium or "",
+        "city": row.city or "",
+        "attendance": row.attendance or "",
+        "capacity": row.capacity or "",
+        "fortuna_1": row.fortuna_1 if row.fortuna_1 is not None else "",
+        "fortuna_x": row.fortuna_x if row.fortuna_x is not None else "",
+        "fortuna_2": row.fortuna_2 if row.fortuna_2 is not None else "",
+        "superbet_1": row.superbet_1 if row.superbet_1 is not None else "",
+        "superbet_x": row.superbet_x if row.superbet_x is not None else "",
+        "superbet_2": row.superbet_2 if row.superbet_2 is not None else "",
+        "unibet_1": row.unibet_1 if row.unibet_1 is not None else "",
+        "unibet_x": row.unibet_x if row.unibet_x is not None else "",
+        "unibet_2": row.unibet_2 if row.unibet_2 is not None else "",
+        "error": row.crawl_error or "",
+    }
+
+
 def _parse_final_score(value: str | None) -> tuple[int | None, int | None]:
     if not value:
         return None, None
@@ -313,6 +352,18 @@ def _parse_kickoff_datetime_utc(value: str | None) -> datetime | None:
     try:
         parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S UTC")
         return parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _parse_float(value: str | None) -> float | None:
+    if not value:
+        return None
+    normalized = value.strip().replace(",", ".")
+    if not normalized:
+        return None
+    try:
+        return float(normalized)
     except ValueError:
         return None
 
@@ -377,7 +428,8 @@ async def download_matches_csv_for_league(
 async def download_detailed_matches_csv_for_league(
     league_id: int,
     season_id: int | None = Query(default=None, ge=1),
-    workers: int = Query(default=8, ge=1, le=24),
+    source: Literal["db", "live"] = Query(default="db"),
+    workers: int = Query(default=12, ge=1, le=32),
     max_matches: int | None = Query(default=None, ge=1),
     session: Session = Depends(get_db_session),
 ) -> StreamingResponse:
@@ -400,18 +452,32 @@ async def download_detailed_matches_csv_for_league(
             raise HTTPException(status_code=404, detail=f"No seasons found for league id={league_id}")
         season = _pick_latest_season(league_seasons)
 
-    try:
-        rows = await asyncio.to_thread(
-            fetch_detailed_matches_from_season_url,
-            season.flashscore_link,
-            workers,
-            max_matches,
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to crawl detailed match data. Details: {exc}",
-        ) from exc
+    if source == "db":
+        persisted_rows = session.scalars(
+            select(Match).where(Match.season_id == season.id).order_by(Match.id.asc())
+        ).all()
+        if not persisted_rows:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "No persisted matches for this season. "
+                    "Run 'Crawl Season to DB' first, then download."
+                ),
+            )
+        rows = [_match_to_detailed_row(row) for row in persisted_rows]
+    else:
+        try:
+            rows = await asyncio.to_thread(
+                fetch_detailed_matches_from_season_url,
+                season.flashscore_link,
+                workers,
+                max_matches,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to crawl detailed match data. Details: {exc}",
+            ) from exc
 
     csv_payload = _build_detailed_matches_csv(rows)
     season_label = extract_season_label(season.flashscore_link)
@@ -427,7 +493,7 @@ async def download_detailed_matches_csv_for_league(
 @app.post("/api/seasons/{season_id}/crawl-matches")
 async def crawl_matches_for_season(
     season_id: int,
-    workers: int = Query(default=8, ge=1, le=24),
+    workers: int = Query(default=12, ge=1, le=32),
     max_matches: int | None = Query(default=None, ge=1),
     session: Session = Depends(get_db_session),
 ) -> dict[str, int]:
@@ -506,15 +572,15 @@ async def crawl_matches_for_season(
                 city=(payload.get("city") or "").strip() or None,
                 attendance=(payload.get("attendance") or "").strip() or None,
                 capacity=(payload.get("capacity") or "").strip() or None,
-                fortuna_1=(payload.get("fortuna_1") or "").strip() or None,
-                fortuna_x=(payload.get("fortuna_x") or "").strip() or None,
-                fortuna_2=(payload.get("fortuna_2") or "").strip() or None,
-                superbet_1=(payload.get("superbet_1") or "").strip() or None,
-                superbet_x=(payload.get("superbet_x") or "").strip() or None,
-                superbet_2=(payload.get("superbet_2") or "").strip() or None,
-                unibet_1=(payload.get("unibet_1") or "").strip() or None,
-                unibet_x=(payload.get("unibet_x") or "").strip() or None,
-                unibet_2=(payload.get("unibet_2") or "").strip() or None,
+                fortuna_1=_parse_float(payload.get("fortuna_1")),
+                fortuna_x=_parse_float(payload.get("fortuna_x")),
+                fortuna_2=_parse_float(payload.get("fortuna_2")),
+                superbet_1=_parse_float(payload.get("superbet_1")),
+                superbet_x=_parse_float(payload.get("superbet_x")),
+                superbet_2=_parse_float(payload.get("superbet_2")),
+                unibet_1=_parse_float(payload.get("unibet_1")),
+                unibet_x=_parse_float(payload.get("unibet_x")),
+                unibet_2=_parse_float(payload.get("unibet_2")),
                 crawl_error=(payload.get("error") or "").strip() or None,
             )
             session.add(row)
@@ -592,32 +658,41 @@ async def crawl_matches_for_season(
         if (row.capacity or "") != ((payload.get("capacity") or "").strip()):
             row.capacity = (payload.get("capacity") or "").strip() or None
             has_changes = True
-        if (row.fortuna_1 or "") != ((payload.get("fortuna_1") or "").strip()):
-            row.fortuna_1 = (payload.get("fortuna_1") or "").strip() or None
+        fortuna_1 = _parse_float(payload.get("fortuna_1"))
+        if row.fortuna_1 != fortuna_1:
+            row.fortuna_1 = fortuna_1
             has_changes = True
-        if (row.fortuna_x or "") != ((payload.get("fortuna_x") or "").strip()):
-            row.fortuna_x = (payload.get("fortuna_x") or "").strip() or None
+        fortuna_x = _parse_float(payload.get("fortuna_x"))
+        if row.fortuna_x != fortuna_x:
+            row.fortuna_x = fortuna_x
             has_changes = True
-        if (row.fortuna_2 or "") != ((payload.get("fortuna_2") or "").strip()):
-            row.fortuna_2 = (payload.get("fortuna_2") or "").strip() or None
+        fortuna_2 = _parse_float(payload.get("fortuna_2"))
+        if row.fortuna_2 != fortuna_2:
+            row.fortuna_2 = fortuna_2
             has_changes = True
-        if (row.superbet_1 or "") != ((payload.get("superbet_1") or "").strip()):
-            row.superbet_1 = (payload.get("superbet_1") or "").strip() or None
+        superbet_1 = _parse_float(payload.get("superbet_1"))
+        if row.superbet_1 != superbet_1:
+            row.superbet_1 = superbet_1
             has_changes = True
-        if (row.superbet_x or "") != ((payload.get("superbet_x") or "").strip()):
-            row.superbet_x = (payload.get("superbet_x") or "").strip() or None
+        superbet_x = _parse_float(payload.get("superbet_x"))
+        if row.superbet_x != superbet_x:
+            row.superbet_x = superbet_x
             has_changes = True
-        if (row.superbet_2 or "") != ((payload.get("superbet_2") or "").strip()):
-            row.superbet_2 = (payload.get("superbet_2") or "").strip() or None
+        superbet_2 = _parse_float(payload.get("superbet_2"))
+        if row.superbet_2 != superbet_2:
+            row.superbet_2 = superbet_2
             has_changes = True
-        if (row.unibet_1 or "") != ((payload.get("unibet_1") or "").strip()):
-            row.unibet_1 = (payload.get("unibet_1") or "").strip() or None
+        unibet_1 = _parse_float(payload.get("unibet_1"))
+        if row.unibet_1 != unibet_1:
+            row.unibet_1 = unibet_1
             has_changes = True
-        if (row.unibet_x or "") != ((payload.get("unibet_x") or "").strip()):
-            row.unibet_x = (payload.get("unibet_x") or "").strip() or None
+        unibet_x = _parse_float(payload.get("unibet_x"))
+        if row.unibet_x != unibet_x:
+            row.unibet_x = unibet_x
             has_changes = True
-        if (row.unibet_2 or "") != ((payload.get("unibet_2") or "").strip()):
-            row.unibet_2 = (payload.get("unibet_2") or "").strip() or None
+        unibet_2 = _parse_float(payload.get("unibet_2"))
+        if row.unibet_2 != unibet_2:
+            row.unibet_2 = unibet_2
             has_changes = True
         if (row.crawl_error or "") != ((payload.get("error") or "").strip()):
             row.crawl_error = (payload.get("error") or "").strip() or None
