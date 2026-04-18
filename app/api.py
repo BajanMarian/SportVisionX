@@ -260,6 +260,7 @@ def _build_detailed_matches_csv(rows: list[dict[str, str]]) -> str:
         "event_id",
         "match_link",
         "match_date",
+        "round",
         "kickoff_datetime_utc",
         "kickoff_hour_utc",
         "home_team",
@@ -281,6 +282,9 @@ def _build_detailed_matches_csv(rows: list[dict[str, str]]) -> str:
         "superbet_1",
         "superbet_x",
         "superbet_2",
+        "unibet_1",
+        "unibet_x",
+        "unibet_2",
         "error",
     ]
     buffer = io.StringIO()
@@ -468,6 +472,7 @@ async def crawl_matches_for_season(
         event_id = (payload.get("event_id") or "").strip()
         home_team = (payload.get("home_team") or "").strip() or "Unknown Home"
         away_team = (payload.get("away_team") or "").strip() or "Unknown Away"
+        round_label = (payload.get("round") or "").strip() or None
         final_score = (payload.get("final_score") or "").strip()
         home_score, away_score = _parse_final_score(final_score)
         kickoff_datetime_utc = _parse_kickoff_datetime_utc(payload.get("kickoff_datetime_utc"))
@@ -483,6 +488,7 @@ async def crawl_matches_for_season(
                 event_id=event_id or None,
                 flashscore_link=match_link,
                 match_date=match_date,
+                round_label=round_label,
                 kickoff_datetime_utc=kickoff_datetime_utc,
                 kickoff_hour_utc=kickoff_hour_utc,
                 home_team=home_team,
@@ -506,6 +512,9 @@ async def crawl_matches_for_season(
                 superbet_1=(payload.get("superbet_1") or "").strip() or None,
                 superbet_x=(payload.get("superbet_x") or "").strip() or None,
                 superbet_2=(payload.get("superbet_2") or "").strip() or None,
+                unibet_1=(payload.get("unibet_1") or "").strip() or None,
+                unibet_x=(payload.get("unibet_x") or "").strip() or None,
+                unibet_2=(payload.get("unibet_2") or "").strip() or None,
                 crawl_error=(payload.get("error") or "").strip() or None,
             )
             session.add(row)
@@ -528,6 +537,9 @@ async def crawl_matches_for_season(
             has_changes = True
         if (row.match_date or "") != (match_date or ""):
             row.match_date = match_date
+            has_changes = True
+        if (row.round_label or "") != (round_label or ""):
+            row.round_label = round_label
             has_changes = True
         if row.kickoff_datetime_utc != kickoff_datetime_utc:
             row.kickoff_datetime_utc = kickoff_datetime_utc
@@ -597,6 +609,15 @@ async def crawl_matches_for_season(
             has_changes = True
         if (row.superbet_2 or "") != ((payload.get("superbet_2") or "").strip()):
             row.superbet_2 = (payload.get("superbet_2") or "").strip() or None
+            has_changes = True
+        if (row.unibet_1 or "") != ((payload.get("unibet_1") or "").strip()):
+            row.unibet_1 = (payload.get("unibet_1") or "").strip() or None
+            has_changes = True
+        if (row.unibet_x or "") != ((payload.get("unibet_x") or "").strip()):
+            row.unibet_x = (payload.get("unibet_x") or "").strip() or None
+            has_changes = True
+        if (row.unibet_2 or "") != ((payload.get("unibet_2") or "").strip()):
+            row.unibet_2 = (payload.get("unibet_2") or "").strip() or None
             has_changes = True
         if (row.crawl_error or "") != ((payload.get("error") or "").strip()):
             row.crawl_error = (payload.get("error") or "").strip() or None

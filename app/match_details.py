@@ -34,6 +34,7 @@ ODDS_COMPARISON_URL = "https://global.ds.lsapp.eu/odds/pq_graphql"
 ODDS_TARGET_BOOKMAKERS = {
     "fortuna": "fortuna",
     "superbet": "superbet",
+    "unibet": "unibet",
 }
 
 
@@ -42,6 +43,7 @@ class MatchSummary:
     event_id: str
     match_url: str
     date: str
+    round_label: str
     home_team: str
     away_team: str
     home_score: str
@@ -355,6 +357,9 @@ def _extract_target_1x2_odds(event_id: str) -> dict[str, str]:
         "superbet_1": "",
         "superbet_x": "",
         "superbet_2": "",
+        "unibet_1": "",
+        "unibet_x": "",
+        "unibet_2": "",
     }
 
     home_participant_id, away_participant_id = _fetch_home_away_participant_ids(event_id)
@@ -450,6 +455,7 @@ def _build_match_details(summary: MatchSummary) -> dict[str, str]:
         "event_id": summary.event_id,
         "match_link": summary.match_url,
         "match_date": summary.date,
+        "round": summary.round_label,
         "kickoff_datetime_utc": kickoff_datetime_utc,
         "kickoff_hour_utc": kickoff_hour_utc,
         "home_team": summary.home_team,
@@ -471,6 +477,9 @@ def _build_match_details(summary: MatchSummary) -> dict[str, str]:
         "superbet_1": odds["superbet_1"],
         "superbet_x": odds["superbet_x"],
         "superbet_2": odds["superbet_2"],
+        "unibet_1": odds["unibet_1"],
+        "unibet_x": odds["unibet_x"],
+        "unibet_2": odds["unibet_2"],
         "error": "",
     }
 
@@ -512,6 +521,16 @@ def _extract_event_id_from_row(row, match_url: str) -> str:
     return ""
 
 
+def _extract_round_label_from_row(row) -> str:
+    for sibling in row.previous_siblings:
+        if getattr(sibling, "name", None) is None:
+            continue
+        classes = sibling.get("class", []) or []
+        if "event__round" in classes:
+            return _clean_text(sibling.get_text(" ", strip=True))
+    return ""
+
+
 def _parse_matches_from_results_html(results_url: str, html: str) -> list[MatchSummary]:
     soup = BeautifulSoup(html, "html.parser")
     matches: list[MatchSummary] = []
@@ -536,6 +555,7 @@ def _parse_matches_from_results_html(results_url: str, html: str) -> list[MatchS
                 event_id=event_id,
                 match_url=match_url,
                 date=_clean_text((row.select_one(".event__time") or row).get_text(" ", strip=True)),
+                round_label=_extract_round_label_from_row(row),
                 home_team=_clean_text((row.select_one(".event__homeParticipant") or row).get_text(" ", strip=True)),
                 away_team=_clean_text((row.select_one(".event__awayParticipant") or row).get_text(" ", strip=True)),
                 home_score=_clean_text((row.select_one(".event__score--home") or row).get_text(" ", strip=True)),
@@ -608,6 +628,7 @@ def fetch_detailed_matches_from_season_url(
                     "event_id": source_match.event_id,
                     "match_link": source_match.match_url,
                     "match_date": source_match.date,
+                    "round": source_match.round_label,
                     "kickoff_datetime_utc": "",
                     "kickoff_hour_utc": "",
                     "home_team": source_match.home_team,
@@ -629,6 +650,9 @@ def fetch_detailed_matches_from_season_url(
                     "superbet_1": "",
                     "superbet_x": "",
                     "superbet_2": "",
+                    "unibet_1": "",
+                    "unibet_x": "",
+                    "unibet_2": "",
                     "error": str(exc),
                 }
 

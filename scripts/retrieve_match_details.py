@@ -50,6 +50,7 @@ def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
         "event_id",
         "match_link",
         "match_date",
+        "round",
         "kickoff_datetime_utc",
         "kickoff_hour_utc",
         "home_team",
@@ -71,6 +72,9 @@ def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
         "superbet_1",
         "superbet_x",
         "superbet_2",
+        "unibet_1",
+        "unibet_x",
+        "unibet_2",
         "error",
     ]
 
