@@ -500,6 +500,53 @@ a:hover {
 
 .season-actions {
   margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sync-pill {
+  margin-top: 8px;
+  display: inline-flex;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.78);
+  padding: 4px 8px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+
+.sync-pill.ok {
+  border-color: rgba(19, 111, 57, 0.4);
+  background: rgba(19, 111, 57, 0.12);
+  color: var(--ok);
+}
+
+.sync-pill.pending {
+  border-color: rgba(138, 82, 0, 0.35);
+  background: rgba(138, 82, 0, 0.1);
+  color: var(--warn);
+}
+
+.season-crawl-btn {
+  border: 1px solid rgba(19, 111, 57, 0.38);
+  background: rgba(19, 111, 57, 0.12);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #0f5a2f;
+  cursor: pointer;
+}
+
+.season-crawl-btn:hover {
+  border-color: rgba(19, 111, 57, 0.58);
+  background: rgba(19, 111, 57, 0.18);
+}
+
+.season-crawl-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .season-download-btn {

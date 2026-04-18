@@ -10,8 +10,8 @@ const statusClass = {
   error: "status-pill error",
 };
 
-async function fetchJson(url) {
-  const response = await fetch(url);
+async function fetchJson(url, options = undefined) {
+  const response = await fetch(url, options);
   if (!response.ok) {
     let detail = response.statusText;
     try {
@@ -61,6 +61,7 @@ function App() {
   const [loadingSports, setLoadingSports] = useState(false);
   const [loadingLeagues, setLoadingLeagues] = useState(false);
   const [loadingSeasons, setLoadingSeasons] = useState(false);
+  const [crawlingSeasonById, setCrawlingSeasonById] = useState({});
   const [isPending, startTransition] = useTransition();
 
   const deferredSportSearch = useDeferredValue(sportSearch);
@@ -89,7 +90,7 @@ function App() {
     if (!normalizedSeasonSearch) {
       return true;
     }
-    const haystack = `${season.winner || ""} ${season.season_years || ""} ${season.flashscore_link}`.toLowerCase();
+    const haystack = `${season.winner || ""} ${season.season_years || ""} ${season.matches_count || 0} ${season.flashscore_link}`.toLowerCase();
     return haystack.includes(normalizedSeasonSearch);
   });
 
@@ -162,20 +163,53 @@ function App() {
       setLoadingSeasons(true);
       setError("");
       setSeasonSearch("");
-      setStatus({ tone: "loading", text: "Loading seasons + generating CSV..." });
+      setStatus({ tone: "loading", text: "Loading seasons..." });
       const seasonsPayload = await fetchJson(`/api/leagues/${leagueId}/seasons?limit=1000`);
       startTransition(() => {
         setSelectedLeagueId(leagueId);
         setSeasons(seasonsPayload);
       });
-      // League click downloads latest season detailed CSV automatically.
-      triggerCsvDownload(`/api/leagues/${leagueId}/matches-detailed.csv`);
-      setStatus({ tone: "ready", text: "Seasons loaded and detailed CSV download started" });
+      setStatus({ tone: "ready", text: "Seasons loaded" });
     } catch (err) {
       setError(err.message);
       setStatus({ tone: "error", text: "Seasons failed" });
     } finally {
       setLoadingSeasons(false);
+    }
+  }
+
+  async function handleCrawlSeason(seasonId) {
+    try {
+      setError("");
+      setStatus({ tone: "loading", text: "Crawling season and saving matches..." });
+      setCrawlingSeasonById((prev) => ({ ...prev, [seasonId]: true }));
+      const payload = await fetchJson(`/api/seasons/${seasonId}/crawl-matches`, { method: "POST" });
+      startTransition(() => {
+        setSeasons((prev) =>
+          prev.map((season) =>
+            season.id === seasonId
+              ? {
+                  ...season,
+                  matches_count: payload.total_in_db,
+                  matches_downloaded: payload.total_in_db > 0,
+                }
+              : season
+          )
+        );
+      });
+      setStatus({
+        tone: "ready",
+        text: `Season crawled: ${payload.crawled} scanned, ${payload.inserted} inserted, ${payload.updated} updated`,
+      });
+    } catch (err) {
+      setError(err.message);
+      setStatus({ tone: "error", text: "Season crawl failed" });
+    } finally {
+      setCrawlingSeasonById((prev) => {
+        const next = { ...prev };
+        delete next[seasonId];
+        return next;
+      });
     }
   }
 
@@ -448,7 +482,20 @@ function App() {
                               <span className="mono">#${season.id} | ${season.season_years || extractSeasonLabel(season.flashscore_link)}</span>
                               <span className="winner-pill">${season.winner || "winner unknown"}</span>
                             </div>
+                            <div className=${`sync-pill ${season.matches_downloaded ? "ok" : "pending"}`}>
+                              ${season.matches_downloaded
+                                ? `Matches in DB: ${season.matches_count || 0}`
+                                : "Matches not downloaded"}
+                            </div>
                             <div className="season-actions">
+                              <button
+                                type="button"
+                                className="season-crawl-btn"
+                                disabled=${Boolean(crawlingSeasonById[season.id])}
+                                onClick=${() => handleCrawlSeason(season.id)}
+                              >
+                                ${crawlingSeasonById[season.id] ? "Crawling..." : "Crawl Season to DB"}
+                              </button>
                               <button
                                 type="button"
                                 className="season-download-btn"

@@ -3,6 +3,8 @@ import csv
 import io
 import re
 import asyncio
+from datetime import datetime, timezone
+from urllib.parse import urlparse
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Generator
@@ -23,6 +25,7 @@ from app.match_results import (
 from app.match_details import fetch_detailed_matches_from_season_url
 from db.countries import Country
 from db.leagues import League
+from db.matches import Match
 from db.seasons import Season
 from db.sports import Sport
 
@@ -182,6 +185,15 @@ def get_seasons_for_league(
     if not league_exists:
         raise HTTPException(status_code=404, detail=f"League id={league_id} was not found")
 
+    matches_by_season = (
+        select(
+            Match.season_id.label("season_id"),
+            func.count(Match.id).label("matches_count"),
+        )
+        .group_by(Match.season_id)
+        .subquery()
+    )
+
     statement = (
         select(
             Season.id,
@@ -190,7 +202,9 @@ def get_seasons_for_league(
             Season.season_years,
             Season.start_year_season,
             Season.end_year_season,
+            func.coalesce(matches_by_season.c.matches_count, 0).label("matches_count"),
         )
+        .outerjoin(matches_by_season, matches_by_season.c.season_id == Season.id)
         .where(Season.league_id == league_id)
         .order_by(
             Season.end_year_season.desc().nullslast(),
@@ -209,6 +223,8 @@ def get_seasons_for_league(
             "season_years": row.season_years,
             "start_year_season": row.start_year_season,
             "end_year_season": row.end_year_season,
+            "matches_count": int(row.matches_count or 0),
+            "matches_downloaded": int(row.matches_count or 0) > 0,
         }
         for row in rows
     ]
@@ -273,6 +289,37 @@ def _build_detailed_matches_csv(rows: list[dict[str, str]]) -> str:
     for row in rows:
         writer.writerow({column: row.get(column, "") for column in columns})
     return "\ufeff" + buffer.getvalue()
+
+
+def _parse_final_score(value: str | None) -> tuple[int | None, int | None]:
+    if not value:
+        return None, None
+    match = re.search(r"^\s*(\d+)\s*-\s*(\d+)\s*$", value)
+    if not match:
+        return None, None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _parse_kickoff_datetime_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S UTC")
+        return parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _normalize_match_url(url: str) -> str:
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    path = parsed.path if parsed.path.endswith("/") else f"{parsed.path}/"
+    query = f"?{parsed.query}" if parsed.query else ""
+    return f"{parsed.scheme}://{parsed.netloc}{path}{query}"
 
 
 @app.get("/api/leagues/{league_id}/matches.csv")
@@ -371,6 +418,209 @@ async def download_detailed_matches_csv_for_league(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.post("/api/seasons/{season_id}/crawl-matches")
+async def crawl_matches_for_season(
+    season_id: int,
+    workers: int = Query(default=8, ge=1, le=24),
+    max_matches: int | None = Query(default=None, ge=1),
+    session: Session = Depends(get_db_session),
+) -> dict[str, int]:
+    season = session.scalar(select(Season).where(Season.id == season_id))
+    if season is None:
+        raise HTTPException(status_code=404, detail=f"Season id={season_id} was not found")
+
+    try:
+        detailed_rows = await asyncio.to_thread(
+            fetch_detailed_matches_from_season_url,
+            season.flashscore_link,
+            workers,
+            max_matches,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to crawl detailed season data. Details: {exc}",
+        ) from exc
+
+    existing_rows = session.scalars(select(Match).where(Match.season_id == season_id)).all()
+    by_link: dict[str, Match] = {
+        row.flashscore_link: row
+        for row in existing_rows
+    }
+    by_event_id: dict[str, Match] = {
+        row.event_id: row
+        for row in existing_rows
+        if row.event_id
+    }
+
+    inserted = 0
+    updated = 0
+    crawled = 0
+
+    for payload in detailed_rows:
+        match_link = _normalize_match_url(payload.get("match_link", ""))
+        if not match_link:
+            continue
+        crawled += 1
+
+        event_id = (payload.get("event_id") or "").strip()
+        home_team = (payload.get("home_team") or "").strip() or "Unknown Home"
+        away_team = (payload.get("away_team") or "").strip() or "Unknown Away"
+        final_score = (payload.get("final_score") or "").strip()
+        home_score, away_score = _parse_final_score(final_score)
+        kickoff_datetime_utc = _parse_kickoff_datetime_utc(payload.get("kickoff_datetime_utc"))
+        kickoff_hour_utc = (payload.get("kickoff_hour_utc") or "").strip() or None
+        match_date = (payload.get("match_date") or "").strip() or None
+
+        row = by_link.get(match_link)
+        if row is None and event_id:
+            row = by_event_id.get(event_id)
+        if row is None:
+            row = Match(
+                season_id=season_id,
+                event_id=event_id or None,
+                flashscore_link=match_link,
+                match_date=match_date,
+                kickoff_datetime_utc=kickoff_datetime_utc,
+                kickoff_hour_utc=kickoff_hour_utc,
+                home_team=home_team,
+                away_team=away_team,
+                home_score=home_score,
+                away_score=away_score,
+                intermediate_scores=(payload.get("intermediate_scores") or "").strip() or None,
+                final_score=final_score or None,
+                goals=(payload.get("goals") or "").strip() or None,
+                yellow_cards=(payload.get("yellow_cards") or "").strip() or None,
+                red_cards=(payload.get("red_cards") or "").strip() or None,
+                referee=(payload.get("referee") or "").strip() or None,
+                referee_country_code=(payload.get("referee_country_code") or "").strip() or None,
+                stadium=(payload.get("stadium") or "").strip() or None,
+                city=(payload.get("city") or "").strip() or None,
+                attendance=(payload.get("attendance") or "").strip() or None,
+                capacity=(payload.get("capacity") or "").strip() or None,
+                fortuna_1=(payload.get("fortuna_1") or "").strip() or None,
+                fortuna_x=(payload.get("fortuna_x") or "").strip() or None,
+                fortuna_2=(payload.get("fortuna_2") or "").strip() or None,
+                superbet_1=(payload.get("superbet_1") or "").strip() or None,
+                superbet_x=(payload.get("superbet_x") or "").strip() or None,
+                superbet_2=(payload.get("superbet_2") or "").strip() or None,
+                crawl_error=(payload.get("error") or "").strip() or None,
+            )
+            session.add(row)
+            by_link[match_link] = row
+            if event_id:
+                by_event_id[event_id] = row
+            inserted += 1
+            continue
+
+        has_changes = False
+        if row.flashscore_link != match_link:
+            by_link.pop(row.flashscore_link, None)
+            row.flashscore_link = match_link
+            by_link[match_link] = row
+            has_changes = True
+        if (row.event_id or "") != event_id:
+            row.event_id = event_id or None
+            if row.event_id:
+                by_event_id[row.event_id] = row
+            has_changes = True
+        if (row.match_date or "") != (match_date or ""):
+            row.match_date = match_date
+            has_changes = True
+        if row.kickoff_datetime_utc != kickoff_datetime_utc:
+            row.kickoff_datetime_utc = kickoff_datetime_utc
+            has_changes = True
+        if (row.kickoff_hour_utc or "") != (kickoff_hour_utc or ""):
+            row.kickoff_hour_utc = kickoff_hour_utc
+            has_changes = True
+        if row.home_team != home_team:
+            row.home_team = home_team
+            has_changes = True
+        if row.away_team != away_team:
+            row.away_team = away_team
+            has_changes = True
+        if row.home_score != home_score:
+            row.home_score = home_score
+            has_changes = True
+        if row.away_score != away_score:
+            row.away_score = away_score
+            has_changes = True
+        if (row.intermediate_scores or "") != ((payload.get("intermediate_scores") or "").strip()):
+            row.intermediate_scores = (payload.get("intermediate_scores") or "").strip() or None
+            has_changes = True
+        if (row.final_score or "") != final_score:
+            row.final_score = final_score or None
+            has_changes = True
+        if (row.goals or "") != ((payload.get("goals") or "").strip()):
+            row.goals = (payload.get("goals") or "").strip() or None
+            has_changes = True
+        if (row.yellow_cards or "") != ((payload.get("yellow_cards") or "").strip()):
+            row.yellow_cards = (payload.get("yellow_cards") or "").strip() or None
+            has_changes = True
+        if (row.red_cards or "") != ((payload.get("red_cards") or "").strip()):
+            row.red_cards = (payload.get("red_cards") or "").strip() or None
+            has_changes = True
+        if (row.referee or "") != ((payload.get("referee") or "").strip()):
+            row.referee = (payload.get("referee") or "").strip() or None
+            has_changes = True
+        if (row.referee_country_code or "") != ((payload.get("referee_country_code") or "").strip()):
+            row.referee_country_code = (payload.get("referee_country_code") or "").strip() or None
+            has_changes = True
+        if (row.stadium or "") != ((payload.get("stadium") or "").strip()):
+            row.stadium = (payload.get("stadium") or "").strip() or None
+            has_changes = True
+        if (row.city or "") != ((payload.get("city") or "").strip()):
+            row.city = (payload.get("city") or "").strip() or None
+            has_changes = True
+        if (row.attendance or "") != ((payload.get("attendance") or "").strip()):
+            row.attendance = (payload.get("attendance") or "").strip() or None
+            has_changes = True
+        if (row.capacity or "") != ((payload.get("capacity") or "").strip()):
+            row.capacity = (payload.get("capacity") or "").strip() or None
+            has_changes = True
+        if (row.fortuna_1 or "") != ((payload.get("fortuna_1") or "").strip()):
+            row.fortuna_1 = (payload.get("fortuna_1") or "").strip() or None
+            has_changes = True
+        if (row.fortuna_x or "") != ((payload.get("fortuna_x") or "").strip()):
+            row.fortuna_x = (payload.get("fortuna_x") or "").strip() or None
+            has_changes = True
+        if (row.fortuna_2 or "") != ((payload.get("fortuna_2") or "").strip()):
+            row.fortuna_2 = (payload.get("fortuna_2") or "").strip() or None
+            has_changes = True
+        if (row.superbet_1 or "") != ((payload.get("superbet_1") or "").strip()):
+            row.superbet_1 = (payload.get("superbet_1") or "").strip() or None
+            has_changes = True
+        if (row.superbet_x or "") != ((payload.get("superbet_x") or "").strip()):
+            row.superbet_x = (payload.get("superbet_x") or "").strip() or None
+            has_changes = True
+        if (row.superbet_2 or "") != ((payload.get("superbet_2") or "").strip()):
+            row.superbet_2 = (payload.get("superbet_2") or "").strip() or None
+            has_changes = True
+        if (row.crawl_error or "") != ((payload.get("error") or "").strip()):
+            row.crawl_error = (payload.get("error") or "").strip() or None
+            has_changes = True
+
+        if has_changes:
+            updated += 1
+
+    session.commit()
+
+    total_in_db = int(
+        session.scalar(
+            select(func.count()).select_from(Match).where(Match.season_id == season_id)
+        )
+        or 0
+    )
+
+    return {
+        "season_id": season_id,
+        "crawled": crawled,
+        "inserted": inserted,
+        "updated": updated,
+        "total_in_db": total_in_db,
+    }
 
 
 @app.get("/")
