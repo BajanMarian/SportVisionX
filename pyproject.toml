@@ -6,6 +6,7 @@ dependencies = [
     "alembic>=1.18.4",
     "bs4>=0.0.2",
     "chromedriver-py==145.0.7632.117",
+    "fastapi>=0.136.0",
     "inquirerpy==0.3.4",
     "pandas==2.2.2",
     "playwright>=1.58.0",
@@ -14,4 +15,5 @@ dependencies = [
     "requests>=2.32.5",
     "selenium==4.23.1",
     "sqlalchemy==2.0.36",
+    "uvicorn>=0.44.0",
 ]

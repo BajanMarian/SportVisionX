@@ -3,6 +3,26 @@ Sport Data Crawler & Championship Insights
 
 ## Usage
 
+### React + FastAPI dashboard
+
+Run the API server (it also serves the React UI):
+
+```bash
+uv run uvicorn app.api:app --reload --host 127.0.0.1 --port 8000
+```
+
+Open:
+
+`http://127.0.0.1:8000`
+
+Available endpoints:
+
+- `GET /api/summary`
+- `GET /api/sports`
+- `GET /api/sports/{sport_id}/leagues`
+- `GET /api/sports/by-name/{sport_name}/leagues`
+- `GET /api/leagues/{league_id}/seasons?limit=200&offset=0`
+
 ### To run the data crawler, use the following command:
 
 ```bash
