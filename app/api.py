@@ -1,4 +1,8 @@
 import os
+import csv
+import io
+import re
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Generator
@@ -6,11 +10,16 @@ from typing import Generator
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.match_results import (
+    MatchRow,
+    extract_season_label,
+    fetch_matches_from_season_url,
+)
 from db.countries import Country
 from db.leagues import League
 from db.seasons import Season
@@ -188,6 +197,75 @@ def get_seasons_for_league(
         }
         for row in rows
     ]
+
+
+def _pick_latest_season(seasons: list[Season]) -> Season:
+    def season_key(season: Season) -> tuple[int, int, int, int]:
+        label = extract_season_label(season.flashscore_link)
+        match = re.match(r"^(\d{4})-(\d{4})$", label)
+        if not match:
+            return (0, 0, 0, season.id)
+        start_year = int(match.group(1))
+        end_year = int(match.group(2))
+        return (1, end_year, start_year, season.id)
+
+    return max(seasons, key=season_key)
+
+
+def _build_matches_csv(rows: list[MatchRow]) -> str:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["date", "home_team", "away_team", "home_score", "away_score"])
+    for row in rows:
+        writer.writerow([row.date, row.home_team, row.away_team, row.home_score, row.away_score])
+    return "\ufeff" + buffer.getvalue()
+
+
+@app.get("/api/leagues/{league_id}/matches.csv")
+async def download_matches_csv_for_league(
+    league_id: int,
+    season_id: int | None = Query(default=None, ge=1),
+    session: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    league = session.scalar(select(League).where(League.id == league_id))
+    if league is None:
+        raise HTTPException(status_code=404, detail=f"League id={league_id} was not found")
+
+    if season_id is not None:
+        season = session.scalar(
+            select(Season).where(Season.id == season_id, Season.league_id == league_id)
+        )
+        if season is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Season id={season_id} was not found for league id={league_id}",
+            )
+    else:
+        league_seasons = session.scalars(select(Season).where(Season.league_id == league_id)).all()
+        if not league_seasons:
+            raise HTTPException(status_code=404, detail=f"No seasons found for league id={league_id}")
+        season = _pick_latest_season(league_seasons)
+
+    try:
+        _, match_rows = await asyncio.to_thread(fetch_matches_from_season_url, season.flashscore_link)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Failed to crawl Flashscore results page. "
+                f"Details: {exc}"
+            ),
+        ) from exc
+
+    csv_payload = _build_matches_csv(match_rows)
+    season_label = extract_season_label(season.flashscore_link)
+    filename = f"{league.slug}-{season_label}-matches.csv"
+
+    return StreamingResponse(
+        iter([csv_payload]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/")

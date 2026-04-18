@@ -31,6 +31,16 @@ function extractSeasonLabel(flashscoreLink) {
   return match ? match[1] : "season";
 }
 
+function triggerCsvDownload(url) {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.setAttribute("download", "");
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
 function App() {
   const [summary, setSummary] = useState({
     sports_count: 0,
@@ -152,13 +162,15 @@ function App() {
       setLoadingSeasons(true);
       setError("");
       setSeasonSearch("");
-      setStatus({ tone: "loading", text: "Loading seasons..." });
+      setStatus({ tone: "loading", text: "Loading seasons + generating CSV..." });
       const seasonsPayload = await fetchJson(`/api/leagues/${leagueId}/seasons?limit=1000`);
       startTransition(() => {
         setSelectedLeagueId(leagueId);
         setSeasons(seasonsPayload);
       });
-      setStatus({ tone: "ready", text: "Seasons loaded" });
+      // League click downloads latest season CSV automatically.
+      triggerCsvDownload(`/api/leagues/${leagueId}/matches.csv`);
+      setStatus({ tone: "ready", text: "Seasons loaded and CSV download started" });
     } catch (err) {
       setError(err.message);
       setStatus({ tone: "error", text: "Seasons failed" });
@@ -435,6 +447,15 @@ function App() {
                             <div className="season-head">
                               <span className="mono">#${season.id} · ${extractSeasonLabel(season.flashscore_link)}</span>
                               <span className="winner-pill">${season.winner || "winner unknown"}</span>
+                            </div>
+                            <div className="season-actions">
+                              <button
+                                type="button"
+                                className="season-download-btn"
+                                onClick=${() => triggerCsvDownload(`/api/leagues/${selectedLeagueId}/matches.csv?season_id=${season.id}`)}
+                              >
+                                Download CSV
+                              </button>
                             </div>
                             <a className="season-link mono" href=${season.flashscore_link} target="_blank" rel="noreferrer">
                               ${season.flashscore_link}

@@ -498,6 +498,26 @@ a:hover {
   word-break: break-word;
 }
 
+.season-actions {
+  margin-top: 8px;
+}
+
+.season-download-btn {
+  border: 1px solid rgba(14, 122, 112, 0.36);
+  background: rgba(14, 122, 112, 0.1);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #134943;
+  cursor: pointer;
+}
+
+.season-download-btn:hover {
+  border-color: rgba(14, 122, 112, 0.55);
+  background: rgba(14, 122, 112, 0.16);
+}
+
 .empty {
   border: 1px dashed var(--line);
   border-radius: var(--radius-md);

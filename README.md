@@ -22,6 +22,8 @@ Available endpoints:
 - `GET /api/sports/{sport_id}/leagues`
 - `GET /api/sports/by-name/{sport_name}/leagues`
 - `GET /api/leagues/{league_id}/seasons?limit=200&offset=0`
+- `GET /api/leagues/{league_id}/matches.csv` (latest season for that league)
+- `GET /api/leagues/{league_id}/matches.csv?season_id=<season_id>` (specific season)
 
 ### To run the data crawler, use the following command:
 
