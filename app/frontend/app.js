@@ -89,7 +89,7 @@ function App() {
     if (!normalizedSeasonSearch) {
       return true;
     }
-    const haystack = `${season.winner || ""} ${season.flashscore_link}`.toLowerCase();
+    const haystack = `${season.winner || ""} ${season.season_years || ""} ${season.flashscore_link}`.toLowerCase();
     return haystack.includes(normalizedSeasonSearch);
   });
 
@@ -168,9 +168,9 @@ function App() {
         setSelectedLeagueId(leagueId);
         setSeasons(seasonsPayload);
       });
-      // League click downloads latest season CSV automatically.
-      triggerCsvDownload(`/api/leagues/${leagueId}/matches.csv`);
-      setStatus({ tone: "ready", text: "Seasons loaded and CSV download started" });
+      // League click downloads latest season detailed CSV automatically.
+      triggerCsvDownload(`/api/leagues/${leagueId}/matches-detailed.csv`);
+      setStatus({ tone: "ready", text: "Seasons loaded and detailed CSV download started" });
     } catch (err) {
       setError(err.message);
       setStatus({ tone: "error", text: "Seasons failed" });
@@ -445,16 +445,16 @@ function App() {
                             style=${{ animationDelay: `${Math.min(idx * 18, 300)}ms` }}
                           >
                             <div className="season-head">
-                              <span className="mono">#${season.id} · ${extractSeasonLabel(season.flashscore_link)}</span>
+                              <span className="mono">#${season.id} | ${season.season_years || extractSeasonLabel(season.flashscore_link)}</span>
                               <span className="winner-pill">${season.winner || "winner unknown"}</span>
                             </div>
                             <div className="season-actions">
                               <button
                                 type="button"
                                 className="season-download-btn"
-                                onClick=${() => triggerCsvDownload(`/api/leagues/${selectedLeagueId}/matches.csv?season_id=${season.id}`)}
+                                onClick=${() => triggerCsvDownload(`/api/leagues/${selectedLeagueId}/matches-detailed.csv?season_id=${season.id}`)}
                               >
-                                Download CSV
+                                Download Detailed CSV
                               </button>
                             </div>
                             <a className="season-link mono" href=${season.flashscore_link} target="_blank" rel="noreferrer">

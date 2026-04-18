@@ -20,6 +20,7 @@ from app.match_results import (
     extract_season_label,
     fetch_matches_from_season_url,
 )
+from app.match_details import fetch_detailed_matches_from_season_url
 from db.countries import Country
 from db.leagues import League
 from db.seasons import Season
@@ -182,9 +183,20 @@ def get_seasons_for_league(
         raise HTTPException(status_code=404, detail=f"League id={league_id} was not found")
 
     statement = (
-        select(Season.id, Season.flashscore_link, Season.winner)
+        select(
+            Season.id,
+            Season.flashscore_link,
+            Season.winner,
+            Season.season_years,
+            Season.start_year_season,
+            Season.end_year_season,
+        )
         .where(Season.league_id == league_id)
-        .order_by(Season.id.desc())
+        .order_by(
+            Season.end_year_season.desc().nullslast(),
+            Season.start_year_season.desc().nullslast(),
+            Season.id.desc(),
+        )
         .offset(offset)
         .limit(limit)
     )
@@ -194,6 +206,9 @@ def get_seasons_for_league(
             "id": row.id,
             "flashscore_link": row.flashscore_link,
             "winner": row.winner,
+            "season_years": row.season_years,
+            "start_year_season": row.start_year_season,
+            "end_year_season": row.end_year_season,
         }
         for row in rows
     ]
@@ -201,6 +216,9 @@ def get_seasons_for_league(
 
 def _pick_latest_season(seasons: list[Season]) -> Season:
     def season_key(season: Season) -> tuple[int, int, int, int]:
+        if season.start_year_season is not None and season.end_year_season is not None:
+            return (2, season.end_year_season, season.start_year_season, season.id)
+
         label = extract_season_label(season.flashscore_link)
         match = re.match(r"^(\d{4})-(\d{4})$", label)
         if not match:
@@ -218,6 +236,42 @@ def _build_matches_csv(rows: list[MatchRow]) -> str:
     writer.writerow(["date", "home_team", "away_team", "home_score", "away_score"])
     for row in rows:
         writer.writerow([row.date, row.home_team, row.away_team, row.home_score, row.away_score])
+    return "\ufeff" + buffer.getvalue()
+
+
+def _build_detailed_matches_csv(rows: list[dict[str, str]]) -> str:
+    columns = [
+        "event_id",
+        "match_link",
+        "match_date",
+        "kickoff_datetime_utc",
+        "kickoff_hour_utc",
+        "home_team",
+        "away_team",
+        "intermediate_scores",
+        "final_score",
+        "goals",
+        "yellow_cards",
+        "red_cards",
+        "referee",
+        "referee_country_code",
+        "stadium",
+        "city",
+        "attendance",
+        "capacity",
+        "fortuna_1",
+        "fortuna_x",
+        "fortuna_2",
+        "superbet_1",
+        "superbet_x",
+        "superbet_2",
+        "error",
+    ]
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({column: row.get(column, "") for column in columns})
     return "\ufeff" + buffer.getvalue()
 
 
@@ -260,6 +314,57 @@ async def download_matches_csv_for_league(
     csv_payload = _build_matches_csv(match_rows)
     season_label = extract_season_label(season.flashscore_link)
     filename = f"{league.slug}-{season_label}-matches.csv"
+
+    return StreamingResponse(
+        iter([csv_payload]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/leagues/{league_id}/matches-detailed.csv")
+async def download_detailed_matches_csv_for_league(
+    league_id: int,
+    season_id: int | None = Query(default=None, ge=1),
+    workers: int = Query(default=8, ge=1, le=24),
+    max_matches: int | None = Query(default=None, ge=1),
+    session: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    league = session.scalar(select(League).where(League.id == league_id))
+    if league is None:
+        raise HTTPException(status_code=404, detail=f"League id={league_id} was not found")
+
+    if season_id is not None:
+        season = session.scalar(
+            select(Season).where(Season.id == season_id, Season.league_id == league_id)
+        )
+        if season is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Season id={season_id} was not found for league id={league_id}",
+            )
+    else:
+        league_seasons = session.scalars(select(Season).where(Season.league_id == league_id)).all()
+        if not league_seasons:
+            raise HTTPException(status_code=404, detail=f"No seasons found for league id={league_id}")
+        season = _pick_latest_season(league_seasons)
+
+    try:
+        rows = await asyncio.to_thread(
+            fetch_detailed_matches_from_season_url,
+            season.flashscore_link,
+            workers,
+            max_matches,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to crawl detailed match data. Details: {exc}",
+        ) from exc
+
+    csv_payload = _build_detailed_matches_csv(rows)
+    season_label = extract_season_label(season.flashscore_link)
+    filename = f"{league.slug}-{season_label}-matches-detailed.csv"
 
     return StreamingResponse(
         iter([csv_payload]),

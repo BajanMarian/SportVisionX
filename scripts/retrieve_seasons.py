@@ -25,6 +25,7 @@ REQUEST_RETRIES = 2
 
 SEASON_URL_PATTERN = re.compile(r"\d{4}-\d{4}/?$")
 SEASON_TEXT_PATTERN = re.compile(r"\b\d{4}/\d{4}\b|\b\d{4}-\d{4}\b")
+SEASON_YEARS_FROM_URL_PATTERN = re.compile(r"(20\d{2})-(20\d{2})(?:/)?$")
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,31 @@ def normalize_url(url: str) -> str:
     parsed = urlparse(url)
     path = parsed.path if parsed.path.endswith("/") else f"{parsed.path}/"
     return f"{parsed.scheme}://{parsed.netloc}{path}"
+
+
+def extract_season_year_fields_from_url(
+    season_url: str,
+) -> tuple[str | None, int | None, int | None]:
+    path = urlparse(normalize_url(season_url)).path
+    match = SEASON_YEARS_FROM_URL_PATTERN.search(path)
+    if not match:
+        return None, None, None
+
+    start_year = int(match.group(1))
+    end_year = int(match.group(2))
+    return f"{start_year}-{end_year}", start_year, end_year
+
+
+def build_season_row(season_url: str, winner: str | None) -> dict[str, str | int | None]:
+    normalized_url = normalize_url(season_url)
+    season_years, start_year, end_year = extract_season_year_fields_from_url(normalized_url)
+    return {
+        "flashscore_link": normalized_url,
+        "winner": winner,
+        "season_years": season_years,
+        "start_year_season": start_year,
+        "end_year_season": end_year,
+    }
 
 
 def build_archive_url(league_url: str) -> str:
@@ -130,13 +156,16 @@ def extract_json_object_after_assignment(html: str, assignment_key: str) -> dict
     return json.loads(html[object_start : object_end + 1])
 
 
-def extract_season_rows_from_environment(archive_url: str, html: str) -> list[dict[str, str | None]]:
+def extract_season_rows_from_environment(
+    archive_url: str,
+    html: str,
+) -> list[dict[str, str | int | None]]:
     environment = extract_json_object_after_assignment(html, "window.environment =")
     season_list = environment.get("season_list", [])
     if not season_list:
         season_list = environment.get("stats2_config", {}).get("season_list", [])
 
-    rows: list[dict[str, str | None]] = []
+    rows: list[dict[str, str | int | None]] = []
     seen_links: set[str] = set()
 
     for season in season_list:
@@ -153,12 +182,7 @@ def extract_season_rows_from_environment(archive_url: str, html: str) -> list[di
             continue
 
         seen_links.add(season_url)
-        rows.append(
-            {
-                "flashscore_link": season_url,
-                "winner": None,
-            }
-        )
+        rows.append(build_season_row(season_url=season_url, winner=None))
 
     return rows
 
@@ -184,11 +208,14 @@ def pick_winner_name(winners: object) -> str | None:
     return None
 
 
-def extract_season_rows_from_archive_data(archive_url: str, html: str) -> list[dict[str, str | None]]:
+def extract_season_rows_from_archive_data(
+    archive_url: str,
+    html: str,
+) -> list[dict[str, str | int | None]]:
     archive_data = extract_json_object_after_assignment(html, "var league_archive_data =")
     seasons = archive_data.get("seasons", [])
 
-    rows: list[dict[str, str | None]] = []
+    rows: list[dict[str, str | int | None]] = []
     seen_links: set[str] = set()
 
     for season in seasons:
@@ -209,23 +236,26 @@ def extract_season_rows_from_archive_data(archive_url: str, html: str) -> list[d
 
         seen_links.add(season_url)
         rows.append(
-            {
-                "flashscore_link": season_url,
-                "winner": pick_winner_name(season.get("winners")),
-            }
+            build_season_row(
+                season_url=season_url,
+                winner=pick_winner_name(season.get("winners")),
+            )
         )
 
     return rows
 
 
-def extract_season_rows_from_anchors(archive_url: str, html: str) -> list[dict[str, str | None]]:
+def extract_season_rows_from_anchors(
+    archive_url: str,
+    html: str,
+) -> list[dict[str, str | int | None]]:
     soup = BeautifulSoup(html, "html.parser")
     archive_parts = [part for part in urlparse(archive_url).path.split("/") if part]
     if len(archive_parts) < 4:
         raise ValueError(f"Unexpected archive URL format: {archive_url}")
     sport_slug, country_slug, league_slug = archive_parts[0], archive_parts[1], archive_parts[2]
 
-    season_rows: list[dict[str, str | None]] = []
+    season_rows: list[dict[str, str | int | None]] = []
     seen_links: set[str] = set()
 
     for anchor in soup.select("a[href]"):
@@ -258,16 +288,16 @@ def extract_season_rows_from_anchors(archive_url: str, html: str) -> list[dict[s
 
         seen_links.add(season_url)
         season_rows.append(
-            {
-                "flashscore_link": season_url,
-                "winner": extract_winner_from_anchor(anchor),
-            }
+            build_season_row(
+                season_url=season_url,
+                winner=extract_winner_from_anchor(anchor),
+            )
         )
 
     return season_rows
 
 
-def extract_season_rows(archive_url: str, html: str) -> list[dict[str, str | None]]:
+def extract_season_rows(archive_url: str, html: str) -> list[dict[str, str | int | None]]:
     try:
         rows = extract_season_rows_from_archive_data(archive_url, html)
         if rows:
@@ -370,11 +400,17 @@ def upsert_seasons(session: Session, parsed_archives: list[dict]) -> int:
                     league_id=archive_data["league_id"],
                     flashscore_link=season_data["flashscore_link"],
                     winner=season_data["winner"],
+                    season_years=season_data["season_years"],
+                    start_year_season=season_data["start_year_season"],
+                    end_year_season=season_data["end_year_season"],
                 )
                 session.add(season)
             else:
                 season.league_id = archive_data["league_id"]
                 season.winner = season_data["winner"]
+                season.season_years = season_data["season_years"]
+                season.start_year_season = season_data["start_year_season"]
+                season.end_year_season = season_data["end_year_season"]
 
             processed += 1
 

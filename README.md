@@ -24,6 +24,17 @@ Available endpoints:
 - `GET /api/leagues/{league_id}/seasons?limit=200&offset=0`
 - `GET /api/leagues/{league_id}/matches.csv` (latest season for that league)
 - `GET /api/leagues/{league_id}/matches.csv?season_id=<season_id>` (specific season)
+- `GET /api/leagues/{league_id}/matches-detailed.csv` (latest season detailed data)
+- `GET /api/leagues/{league_id}/matches-detailed.csv?season_id=<season_id>&workers=8&max_matches=30`
+
+Detailed CSV fields include:
+`date/time, teams, intermediate scores, final score, goals, yellow/red cards (+ on_pitch), referee, stadium/city, attendance/capacity, Fortuna/Superbet 1X2 when available`.
+
+Run one-off detailed export script (Serie A 2023/2024 default):
+
+```bash
+uv run python -m scripts.retrieve_match_details --workers 8
+```
 
 ### To run the data crawler, use the following command:
 
