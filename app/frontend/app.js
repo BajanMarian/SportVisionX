@@ -31,6 +31,17 @@ function extractSeasonLabel(flashscoreLink) {
   return match ? match[1] : "season";
 }
 
+function formatReminderTime(value) {
+  if (!value) {
+    return "unknown";
+  }
+  const parsed = new Date(value.replace(" UTC", "Z"));
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleString();
+}
+
 function triggerCsvDownload(url) {
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -39,6 +50,10 @@ function triggerCsvDownload(url) {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
+}
+
+function pageFromHash(hashValue) {
+  return hashValue === "#downloads" ? "downloads" : "explorer";
 }
 
 function App() {
@@ -61,16 +76,22 @@ function App() {
   const [loadingSports, setLoadingSports] = useState(false);
   const [loadingLeagues, setLoadingLeagues] = useState(false);
   const [loadingSeasons, setLoadingSeasons] = useState(false);
+  const [loadingDownloaded, setLoadingDownloaded] = useState(false);
   const [crawlingSeasonById, setCrawlingSeasonById] = useState({});
   const [crawlWorkers, setCrawlWorkers] = useState(6);
+  const [downloadedSeasons, setDownloadedSeasons] = useState([]);
+  const [downloadedSearch, setDownloadedSearch] = useState("");
+  const [activePage, setActivePage] = useState(() => pageFromHash(window.location.hash));
   const [isPending, startTransition] = useTransition();
 
   const deferredSportSearch = useDeferredValue(sportSearch);
   const deferredLeagueSearch = useDeferredValue(leagueSearch);
   const deferredSeasonSearch = useDeferredValue(seasonSearch);
+  const deferredDownloadedSearch = useDeferredValue(downloadedSearch);
   const normalizedSportSearch = deferredSportSearch.trim().toLowerCase();
   const normalizedLeagueSearch = deferredLeagueSearch.trim().toLowerCase();
   const normalizedSeasonSearch = deferredSeasonSearch.trim().toLowerCase();
+  const normalizedDownloadedSearch = deferredDownloadedSearch.trim().toLowerCase();
 
   const visibleSports = sports.filter((sport) => {
     if (!normalizedSportSearch) {
@@ -95,10 +116,31 @@ function App() {
     return haystack.includes(normalizedSeasonSearch);
   });
 
+  const visibleDownloadedSeasons = downloadedSeasons.filter((row) => {
+    if (!normalizedDownloadedSearch) {
+      return true;
+    }
+    const haystack = `${row.sport_name} ${row.country_name} ${row.league_name} ${row.season_years || ""}`.toLowerCase();
+    return haystack.includes(normalizedDownloadedSearch);
+  });
+
   const selectedSport = sports.find((sport) => sport.id === selectedSportId) || null;
   const selectedLeague = leagues.find((league) => league.id === selectedLeagueId) || null;
   const currentStep = selectedLeague ? 3 : selectedSport ? 2 : 1;
   const progressPercent = currentStep === 1 ? 33 : currentStep === 2 ? 66 : 100;
+
+  async function loadDownloadedSeasons(sportId = null) {
+    setLoadingDownloaded(true);
+    try {
+      const query = sportId ? `?limit=80&sport_id=${sportId}` : "?limit=80";
+      const payload = await fetchJson(`/api/downloaded-seasons${query}`);
+      startTransition(() => setDownloadedSeasons(payload));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingDownloaded(false);
+    }
+  }
 
   useEffect(() => {
     async function boot() {
@@ -106,14 +148,16 @@ function App() {
         setLoadingSports(true);
         setError("");
         setStatus({ tone: "loading", text: "Loading sports..." });
-        const [summaryPayload, sportsPayload] = await Promise.all([
+        const [summaryPayload, sportsPayload, downloadedPayload] = await Promise.all([
           fetchJson("/api/summary"),
           fetchJson("/api/sports"),
+          fetchJson("/api/downloaded-seasons?limit=80"),
         ]);
         const sportsWithLeagues = sportsPayload.filter((sport) => Number(sport.league_count || 0) > 0);
         startTransition(() => {
           setSummary(summaryPayload);
           setSports(sportsWithLeagues);
+          setDownloadedSeasons(downloadedPayload);
           setSelectedSportId(null);
           setSelectedLeagueId(null);
           setLeagues([]);
@@ -135,6 +179,22 @@ function App() {
     boot();
   }, []);
 
+  useEffect(() => {
+    function onHashChange() {
+      setActivePage(pageFromHash(window.location.hash));
+    }
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  function navigateToPage(pageName) {
+    setActivePage(pageName);
+    const nextHash = `#${pageName}`;
+    if (window.location.hash !== nextHash) {
+      window.history.replaceState(null, "", nextHash);
+    }
+  }
+
   async function handleSelectSport(sportId) {
     try {
       setLoadingLeagues(true);
@@ -151,6 +211,7 @@ function App() {
         setLeagues(leaguesWithSeasons);
         setSeasons([]);
       });
+      await loadDownloadedSeasons(sportId);
       setStatus({ tone: "ready", text: "Pick a league" });
     } catch (err) {
       setError(err.message);
@@ -204,6 +265,7 @@ function App() {
         tone: "ready",
         text: `Season crawled: ${payload.crawled} scanned, ${payload.inserted} inserted, ${payload.updated} updated`,
       });
+      await loadDownloadedSeasons(selectedSportId);
     } catch (err) {
       setError(err.message);
       setStatus({ tone: "error", text: "Season crawl failed" });
@@ -225,6 +287,7 @@ function App() {
       setLeagueSearch("");
       setSeasonSearch("");
     });
+    loadDownloadedSeasons(null);
     setStatus({ tone: "ready", text: "Pick a sport" });
   }
 
@@ -266,6 +329,10 @@ function App() {
     handleSelectLeague(randomLeague.id);
   }
 
+  function openDownloadsPage() {
+    navigateToPage("downloads");
+  }
+
   return html`
     <main className="app-shell">
       <div className="ambient-bg" aria-hidden="true">
@@ -298,6 +365,20 @@ function App() {
             </div>
           </div>
           <div className="hero-actions">
+            <button
+              type="button"
+              className=${`hero-btn ${activePage === "explorer" ? "active" : ""}`}
+              onClick=${() => navigateToPage("explorer")}
+            >
+              Explorer Page
+            </button>
+            <button
+              type="button"
+              className=${`hero-btn ${activePage === "downloads" ? "active" : ""}`}
+              onClick=${() => navigateToPage("downloads")}
+            >
+              Downloads Page
+            </button>
             <button type="button" className="hero-btn" onClick=${pickRandomSport}>Random Sport</button>
             <button type="button" className="hero-btn" onClick=${pickRandomLeague} disabled=${!selectedSport}>Random League</button>
             <button type="button" className="hero-btn ghost" onClick=${clearAllSelections}>Clear All</button>
@@ -324,6 +405,7 @@ function App() {
         </section>
       </header>
 
+      ${activePage === "explorer" ? html`
       <section className="wizard-grid">
         <article className="panel step-card reveal-surface" style=${{ animationDelay: "80ms" }}>
           <div className="step-head">
@@ -512,10 +594,9 @@ function App() {
                               <button
                                 type="button"
                                 className="season-download-btn"
-                                disabled=${!season.matches_downloaded}
-                                onClick=${() => triggerCsvDownload(`/api/leagues/${selectedLeagueId}/matches-detailed.csv?season_id=${season.id}&source=db`)}
+                                onClick=${openDownloadsPage}
                               >
-                                Download Detailed CSV
+                                Go To Downloads
                               </button>
                             </div>
                             <a className="season-link mono" href=${season.flashscore_link} target="_blank" rel="noreferrer">
@@ -528,6 +609,59 @@ function App() {
           </div>
         </article>
       </section>
+      ` : html`
+      <section className="panel reminder-panel reveal-surface" style=${{ animationDelay: "200ms" }}>
+        <div className="reminder-head">
+          <div className="reminder-title">Downloaded Seasons</div>
+          <span className="count-pill">${visibleDownloadedSeasons.length} seasons</span>
+        </div>
+        <input
+          className="search-input"
+          type="search"
+          value=${downloadedSearch}
+          onChange=${(event) => setDownloadedSearch(event.target.value)}
+          placeholder="Search sport, country, league, season..."
+        />
+        <div className="reminder-list">
+          ${
+            loadingDownloaded
+              ? html`
+                  <div className="skeleton-wrap">
+                    <span className="skeleton-line"></span>
+                    <span className="skeleton-line"></span>
+                  </div>
+                `
+              : visibleDownloadedSeasons.length === 0
+                ? html`<div className="empty">No crawled seasons yet.</div>`
+                : visibleDownloadedSeasons.map(
+                    (row) => html`
+                      <article key=${`${row.season_id}-${row.league_id}`} className="reminder-item">
+                        <div className="reminder-item-title">
+                          ${row.sport_name} | ${row.country_name} | ${row.league_name}
+                        </div>
+                        <div className="choice-meta mono">
+                          season: ${row.season_years || extractSeasonLabel(row.season_link)} | matches: ${row.matches_count}
+                        </div>
+                        <div className="choice-meta mono">
+                          last crawl: ${formatReminderTime(row.last_crawled_at)}
+                        </div>
+                        <div className="season-actions">
+                          <button
+                            type="button"
+                            className="season-download-btn"
+                            onClick=${() => triggerCsvDownload(`/api/leagues/${row.league_id}/matches-detailed.csv?season_id=${row.season_id}&source=db`)}
+                          >
+                            Download Detailed CSV
+                          </button>
+                          <a className="inline-link" href=${row.season_link} target="_blank" rel="noreferrer">Open Season</a>
+                        </div>
+                      </article>
+                    `
+                  )
+          }
+        </div>
+      </section>
+      `}
     </main>
   `;
 }

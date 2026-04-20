@@ -1,20 +1,21 @@
 :root {
-  --bg: #eef3f3;
+  --bg: #eef3ff;
   --surface: rgba(255, 255, 255, 0.78);
   --surface-strong: #ffffff;
-  --text: #152326;
-  --muted: #506268;
-  --line: rgba(23, 63, 65, 0.14);
-  --accent: #0e7a70;
-  --accent-2: #dc6a1c;
-  --ok: #136f39;
-  --warn: #8a5200;
-  --danger: #b62020;
+  --text: #101f46;
+  --muted: #54658d;
+  --line: rgba(21, 58, 157, 0.16);
+  --accent: #214dce;
+  --accent-2: #3a77ff;
+  --accent-rgb: 33, 77, 206;
+  --ok: #167347;
+  --warn: #925f00;
+  --danger: #bb2626;
   --radius-xl: 26px;
   --radius-lg: 18px;
   --radius-md: 12px;
-  --shadow-lg: 0 24px 60px rgba(22, 35, 41, 0.16);
-  --shadow-sm: 0 8px 20px rgba(22, 35, 41, 0.08);
+  --shadow-lg: 0 24px 60px rgba(20, 36, 90, 0.18);
+  --shadow-sm: 0 8px 20px rgba(20, 36, 90, 0.09);
 }
 
 * {
@@ -31,9 +32,9 @@ body {
   font-family: "Sora", "Segoe UI", sans-serif;
   color: var(--text);
   background:
-    radial-gradient(1000px 520px at -12% -6%, rgba(14, 122, 112, 0.24), transparent),
-    radial-gradient(820px 500px at 106% 104%, rgba(220, 106, 28, 0.2), transparent),
-    linear-gradient(160deg, #ecf2f2 0%, #edf4f4 44%, #eef2f7 100%);
+    radial-gradient(1000px 560px at -12% -6%, rgba(33, 77, 206, 0.28), transparent),
+    radial-gradient(860px 520px at 106% 104%, rgba(58, 119, 255, 0.24), transparent),
+    linear-gradient(160deg, #edf2ff 0%, #eaf1ff 44%, #e9eefb 100%);
 }
 
 a {
@@ -75,7 +76,7 @@ a:hover {
   height: 540px;
   top: -90px;
   left: -120px;
-  background: radial-gradient(circle at 30% 30%, rgba(14, 122, 112, 0.6), rgba(14, 122, 112, 0.06));
+  background: radial-gradient(circle at 30% 30%, rgba(33, 77, 206, 0.68), rgba(33, 77, 206, 0.08));
 }
 
 .orb-2 {
@@ -83,7 +84,7 @@ a:hover {
   height: 500px;
   right: -130px;
   top: 24%;
-  background: radial-gradient(circle at 40% 40%, rgba(220, 106, 28, 0.55), rgba(220, 106, 28, 0.05));
+  background: radial-gradient(circle at 40% 40%, rgba(58, 119, 255, 0.6), rgba(58, 119, 255, 0.06));
   animation-duration: 24s;
 }
 
@@ -92,7 +93,7 @@ a:hover {
   height: 420px;
   left: 28%;
   bottom: -120px;
-  background: radial-gradient(circle at 40% 40%, rgba(88, 99, 210, 0.4), rgba(88, 99, 210, 0.04));
+  background: radial-gradient(circle at 40% 40%, rgba(32, 146, 255, 0.42), rgba(32, 146, 255, 0.05));
   animation-duration: 30s;
 }
 
@@ -142,7 +143,7 @@ a:hover {
 }
 
 .gradient-title {
-  background: linear-gradient(100deg, #12544e 0%, #177d72 48%, #b44d14 100%);
+  background: linear-gradient(100deg, #1a3ea8 0%, #2459dd 52%, #3a7fff 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -209,19 +210,27 @@ a:hover {
 }
 
 .hero-btn {
-  border: 1px solid rgba(14, 122, 112, 0.36);
-  background: rgba(14, 122, 112, 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.34);
+  background: rgba(var(--accent-rgb), 0.1);
   border-radius: 999px;
   padding: 8px 12px;
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
-  color: #134943;
+  color: #173a9b;
   cursor: pointer;
+  transition: transform 130ms ease, border-color 130ms ease, background 130ms ease;
 }
 
 .hero-btn:hover {
-  border-color: rgba(14, 122, 112, 0.55);
-  background: rgba(14, 122, 112, 0.16);
+  border-color: rgba(var(--accent-rgb), 0.54);
+  background: rgba(var(--accent-rgb), 0.16);
+  transform: translateY(-1px);
+}
+
+.hero-btn.active {
+  color: #ffffff;
+  border-color: rgba(var(--accent-rgb), 0.72);
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
 }
 
 .hero-btn.ghost {
@@ -259,10 +268,10 @@ a:hover {
 }
 
 .trail-chip {
-  border: 1px solid rgba(14, 122, 112, 0.26);
+  border: 1px solid rgba(var(--accent-rgb), 0.26);
   border-radius: 999px;
   padding: 8px 12px;
-  background: rgba(14, 122, 112, 0.1);
+  background: rgba(var(--accent-rgb), 0.1);
   font-size: 12px;
 }
 
@@ -302,6 +311,54 @@ a:hover {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 11px;
+}
+
+.reminder-panel {
+  padding: 16px;
+  min-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reminder-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.reminder-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.reminder-list {
+  display: grid;
+  gap: 10px;
+  max-height: 60vh;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.reminder-item {
+  border: 1px solid var(--line);
+  border-left: 3px solid rgba(var(--accent-rgb), 0.48);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.88);
+  padding: 10px 11px;
+  transition: transform 130ms ease, border-color 130ms ease;
+}
+
+.reminder-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(var(--accent-rgb), 0.36);
+}
+
+.reminder-item-title {
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .wizard-grid {
@@ -411,7 +468,7 @@ a:hover {
 }
 
 .ghost-btn:hover {
-  border-color: rgba(14, 122, 112, 0.4);
+  border-color: rgba(var(--accent-rgb), 0.4);
   color: var(--text);
 }
 
@@ -426,7 +483,7 @@ a:hover {
 }
 
 .search-input:focus {
-  outline: 2px solid rgba(14, 122, 112, 0.24);
+  outline: 2px solid rgba(var(--accent-rgb), 0.24);
   border-color: var(--accent);
 }
 
@@ -456,13 +513,13 @@ a:hover {
 
 .choice-btn:hover {
   transform: translateY(-1px);
-  border-color: rgba(14, 122, 112, 0.44);
-  box-shadow: 0 10px 20px rgba(16, 61, 63, 0.08);
+  border-color: rgba(var(--accent-rgb), 0.44);
+  box-shadow: 0 10px 20px rgba(20, 42, 110, 0.1);
 }
 
 .choice-btn.active {
   border-color: var(--accent);
-  background: linear-gradient(95deg, rgba(14, 122, 112, 0.1), rgba(220, 106, 28, 0.08));
+  background: linear-gradient(95deg, rgba(var(--accent-rgb), 0.12), rgba(58, 119, 255, 0.1));
 }
 
 .choice-title {
@@ -497,7 +554,7 @@ a:hover {
 
 .season-card:hover {
   transform: translateY(-1px);
-  border-color: rgba(14, 122, 112, 0.35);
+  border-color: rgba(var(--accent-rgb), 0.35);
 }
 
 .season-head {
@@ -510,8 +567,8 @@ a:hover {
 .winner-pill {
   display: inline-block;
   border-radius: 999px;
-  border: 1px solid rgba(14, 122, 112, 0.28);
-  background: rgba(14, 122, 112, 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  background: rgba(var(--accent-rgb), 0.1);
   padding: 4px 8px;
   font-size: 12px;
 }
@@ -574,19 +631,19 @@ a:hover {
 }
 
 .season-download-btn {
-  border: 1px solid rgba(14, 122, 112, 0.36);
-  background: rgba(14, 122, 112, 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.36);
+  background: rgba(var(--accent-rgb), 0.1);
   border-radius: 999px;
   padding: 6px 10px;
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
-  color: #134943;
+  color: #173a9b;
   cursor: pointer;
 }
 
 .season-download-btn:hover {
-  border-color: rgba(14, 122, 112, 0.55);
-  background: rgba(14, 122, 112, 0.16);
+  border-color: rgba(var(--accent-rgb), 0.55);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 
 .season-download-btn:disabled {

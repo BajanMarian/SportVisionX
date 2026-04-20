@@ -95,6 +95,71 @@ def get_summary(session: Session = Depends(get_db_session)) -> dict[str, int]:
     }
 
 
+@app.get("/api/downloaded-seasons")
+def get_downloaded_seasons(
+    limit: int = Query(default=50, ge=1, le=500),
+    sport_id: int | None = Query(default=None, ge=1),
+    session: Session = Depends(get_db_session),
+) -> list[dict]:
+    statement = (
+        select(
+            Season.id.label("season_id"),
+            Season.season_years,
+            Season.flashscore_link.label("season_link"),
+            League.id.label("league_id"),
+            League.name.label("league_name"),
+            League.slug.label("league_slug"),
+            Country.name.label("country_name"),
+            Sport.id.label("sport_id"),
+            Sport.name.label("sport_name"),
+            func.count(Match.id).label("matches_count"),
+            func.max(Match.updated_at).label("last_crawled_at"),
+        )
+        .select_from(Match)
+        .join(Season, Season.id == Match.season_id)
+        .join(League, League.id == Season.league_id)
+        .join(Country, Country.id == League.country_id)
+        .join(Sport, Sport.id == League.sport_id)
+        .group_by(
+            Season.id,
+            Season.season_years,
+            Season.flashscore_link,
+            League.id,
+            League.name,
+            League.slug,
+            Country.name,
+            Sport.id,
+            Sport.name,
+        )
+        .order_by(func.max(Match.updated_at).desc(), Season.id.desc())
+        .limit(limit)
+    )
+    if sport_id is not None:
+        statement = statement.where(Sport.id == sport_id)
+
+    rows = session.execute(statement).all()
+    return [
+        {
+            "season_id": row.season_id,
+            "season_years": row.season_years,
+            "season_link": row.season_link,
+            "league_id": row.league_id,
+            "league_name": row.league_name,
+            "league_slug": row.league_slug,
+            "country_name": row.country_name,
+            "sport_id": row.sport_id,
+            "sport_name": row.sport_name,
+            "matches_count": int(row.matches_count or 0),
+            "last_crawled_at": (
+                row.last_crawled_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                if row.last_crawled_at is not None
+                else ""
+            ),
+        }
+        for row in rows
+    ]
+
+
 @app.get("/api/sports")
 def get_sports(session: Session = Depends(get_db_session)) -> list[dict]:
     statement = (
